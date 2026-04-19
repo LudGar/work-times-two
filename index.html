@@ -1,487 +1,409 @@
 <!DOCTYPE html>
 <html lang="de">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dienstplan</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5.0.12/index.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.0.18/index.css">
-    <link rel="stylesheet" href=".\styles.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dienstplan</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5.0.12/index.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.0.18/index.css">
+<link rel="stylesheet" href=".\styles.css">
 </head>
-
 <body>
 
-    <!-- SETUP MODAL (first run only) -->
-    <div id="setup-modal" style="display:none">
-        <div class="setup-card">
-            <div class="setup-icon">📋</div>
-            <div class="setup-title">Dienstplan</div>
-            <div class="setup-sub">Gib deine Filiale-Nummer ein um zu starten. Diese wird lokal gespeichert.</div>
-            <input class="setup-inp" id="setup-fil" placeholder="z.B. 3279" maxlength="6" inputmode="numeric" onkeydown="if(event.key==='Enter')doSetup()">
-            <button class="setup-btn" onclick="doSetup()">Weiter →</button>
-            <div class="setup-err" id="setup-err">Bitte eine Nummer eingeben.</div>
-        </div>
+<!-- SETUP MODAL (first run only) -->
+<div id="setup-modal" style="display:none">
+  <div class="setup-card">
+    <div class="setup-icon">📋</div>
+    <div class="setup-title">Dienstplan</div>
+    <div class="setup-sub">Gib deine Filiale-Nummer ein um zu starten. Diese wird lokal gespeichert.</div>
+    <input class="setup-inp" id="setup-fil" placeholder="z.B. 3279" maxlength="6" inputmode="numeric" onkeydown="if(event.key==='Enter')doSetup()">
+    <button class="setup-btn" onclick="doSetup()">Weiter →</button>
+    <div class="setup-err" id="setup-err">Bitte eine Nummer eingeben.</div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="main-app" style="display:none">
+  <div class="hdr">
+    <div class="brand">
+      <span class="brand-icon">📋</span>
+      <span class="brand-name">Dienstplan</span>
     </div>
-
-    <!-- MAIN APP -->
-    <div id="main-app" style="display:none">
-        <div class="hdr">
-            <div class="brand">
-                <span class="brand-icon">📋</span>
-                <span class="brand-name">Dienstplan</span>
-            </div>
-            <div class="fil-edit" onclick="openFilialEdit()" title="Filiale ändern">
-                <span style="font-size:10px;color:var(--text2)">Filiale</span>
-                <span class="fil-num" id="fil-display">–</span>
-                <span class="fil-edit-icon">✏</span>
-            </div>
-            <div class="week-nav">
-                <button class="nav-btn" onclick="changeWeek(-1)">◀</button>
-                <div class="week-info">
-                    <div class="kw-lbl" id="kw-lbl">KW –</div>
-                    <div class="dr-lbl" id="dr-lbl">–</div>
-                </div>
-                <button class="nav-btn" onclick="changeWeek(1)">▶</button>
-                <button class="today-btn" onclick="goToday()">Heute</button>
-            </div>
-            <div class="hdr-actions">
-                <button class="btn btn-or btn-sm" onclick="showMgmt()">⚙ Mitarbeiter</button>
-                <button class="btn btn-sm" onclick="showMgmt('guest')">← Gast</button>
-                <button class="btn btn-y btn-sm" onclick="showDiscord()">Discord ↗</button>
-                <button class="btn btn-wa btn-sm" onclick="showWA()">WhatsApp ↗</button>
-                <button class="btn btn-sm" style="background:rgba(37,211,102,.08);border-color:rgba(37,211,102,.25);color:var(--gi)" onclick="showVac()">🏖 Urlaub</button>
-            </div>
-        </div>
-
-        <div class="sched-wrap">
-            <table class="sched">
-                <thead id="t-head"></thead>
-                <tbody id="t-body"></tbody>
-                <tfoot id="t-foot"></tfoot>
-            </table>
-        </div>
-
-        <div class="footer">
-            <label>Bundesland:
-                <select id="bl-sel" onchange="setBL(this.value)">
-                    <option value="BY" selected>Bayern (BY)</option>
-                    <option value="BW">Baden-Württemberg</option>
-                    <option value="BE">Berlin</option>
-                    <option value="BB">Brandenburg</option>
-                    <option value="HB">Bremen</option>
-                    <option value="HH">Hamburg</option>
-                    <option value="HE">Hessen</option>
-                    <option value="MV">Mecklenburg-Vorpommern</option>
-                    <option value="NI">Niedersachsen</option>
-                    <option value="NW">Nordrhein-Westfalen</option>
-                    <option value="RP">Rheinland-Pfalz</option>
-                    <option value="SL">Saarland</option>
-                    <option value="SN">Sachsen</option>
-                    <option value="ST">Sachsen-Anhalt</option>
-                    <option value="SH">Schleswig-Holstein</option>
-                    <option value="TH">Thüringen</option>
-                </select>
-            </label>
-            <span id="hc-lbl" style="color:var(--accent)"></span>
-            <span class="sync-b sync-none" id="sync-b" onclick="showDiscord()" title="Discord Sync">⬡ Discord</span>
-            <span class="save-lbl" id="save-lbl"></span>
-        </div>
+    <div class="fil-edit" onclick="openFilialEdit()" title="Filiale ändern">
+      <span style="font-size:10px;color:var(--text2)">Filiale</span>
+      <span class="fil-num" id="fil-display">–</span>
+      <span class="fil-edit-icon">✏</span>
     </div>
-
-    <!-- FILIALE EDIT MODAL -->
-    <div class="mwrap" id="fil-modal" style="display:none">
-        <div class="mbox" style="max-width:300px;text-align:center;">
-            <div class="mtitle" style="justify-content:center;margin-bottom:8px;">Filiale ändern</div>
-            <div style="font-size:12px;color:var(--text2);margin-bottom:14px;">Nur die Nummer ändert sich — alle Daten bleiben erhalten.</div>
-            <input type="text" id="fil-inp" maxlength="6" inputmode="numeric" placeholder="Filiale-Nr." style="width:100%;background:var(--card2);border:1px solid var(--border2);color:var(--text);padding:9px 12px;border-radius:var(--r);font-size:16px;text-align:center;letter-spacing:2px;font-family:'JetBrains Mono',ui-monospace,monospace;">
-            <div class="mbtns" style="margin-top:12px;">
-                <button class="btn btn-sm" onclick="closeFil()">Abbrechen</button>
-                <div class="spacer"></div>
-                <button class="btn btn-y btn-sm" onclick="saveFil()">Speichern</button>
-            </div>
-        </div>
+    <div class="week-nav">
+      <button class="nav-btn" onclick="changeWeek(-1)">◀</button>
+      <div class="week-info">
+        <div class="kw-lbl" id="kw-lbl">KW –</div>
+        <div class="dr-lbl" id="dr-lbl">–</div>
+      </div>
+      <button class="nav-btn" onclick="changeWeek(1)">▶</button>
+      <button class="today-btn" onclick="goToday()">Heute</button>
     </div>
-
-    <!-- SHIFT MODAL -->
-    <div class="mwrap" id="shift-modal" style="display:none">
-        <div class="mbox">
-            <div class="mtitle"><span id="modal-lbl">Schicht</span>
-                <button class="mclose" onclick="closeShift()">✕</button>
-            </div>
-            <div class="fld-row">
-                <div class="fld">
-                    <label>Beginn</label>
-                    <input type="time" id="s-start" value="08:00" step="900">
-                </div>
-                <div class="fld">
-                    <label>Ende</label>
-                    <input type="time" id="s-end" value="16:00" step="900">
-                </div>
-            </div>
-            <div class="fld-row">
-                <div class="fld">
-                    <label>Pause (Min.)</label>
-                    <input type="number" id="s-pause" min="0" step="15" value="30">
-                </div>
-                <div class="fld">
-                    <label>Typ</label>
-                    <select id="s-type">
-                        <option value="work">Arbeit</option>
-                        <option value="free">Frei</option>
-                        <option value="sick">Krank</option>
-                        <option value="vacation">Urlaub</option>
-                        <option value="bs">Berufsschule (BS)</option>
-                        <option value="absent">Abwesend</option>
-                    </select>
-                </div>
-            </div>
-            <div class="fld">
-                <label>Notiz</label>
-                <input type="text" id="s-note" placeholder="z.B. Kasse, Lager…" maxlength="40">
-            </div>
-            <div class="go-box" id="go-box">
-                <div class="go-box-title">→ Gastschicht bei anderer Filiale</div>
-                <label class="tlbl">
-                    <input type="checkbox" id="go-on" onchange="toggleGo()"> Mitarbeiter arbeitet heute woanders</label>
-                <div id="go-fields" style="display:none">
-                    <div class="fld-row">
-                        <div class="fld">
-                            <label>Filiale-Nr.</label>
-                            <input type="text" id="go-fil" placeholder="z.B. 3227" maxlength="6">
-                        </div>
-                        <div class="fld">
-                            <label>Zeiten zeigen?</label>
-                            <select id="go-times">
-                                <option value="yes">Ja</option>
-                                <option value="no">Nur Nr.</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="mbtns">
-                <button class="btn btn-red btn-sm" onclick="clearShift()">✕ Frei</button>
-                <div class="spacer"></div>
-                <button class="btn btn-sm" onclick="closeShift()">Abbrechen</button>
-                <button class="btn btn-y btn-sm" onclick="saveShift()">Speichern</button>
-            </div>
-        </div>
+    <div class="hdr-actions">
+      <button class="btn btn-or btn-sm" onclick="showMgmt()">⚙ Mitarbeiter</button>
+      <button class="btn btn-sm" onclick="showMgmt('guest')">← Gast</button>
+      <button class="btn btn-y btn-sm" onclick="showDiscord()">Discord ↗</button>
+      <button class="btn btn-wa btn-sm" onclick="showWA()">WhatsApp ↗</button>
+      <button class="btn btn-sm" style="background:rgba(37,211,102,.08);border-color:rgba(37,211,102,.25);color:var(--gi)" onclick="showVac()">🏖 Urlaub</button>
     </div>
+  </div>
 
-    <!-- EDIT EMPLOYEE MODAL -->
-    <div class="mwrap" id="edit-emp-modal" style="display:none">
-        <div class="mbox">
-            <div class="mtitle"><span>Mitarbeiter bearbeiten</span>
-                <button class="mclose" onclick="closeEditEmp()">✕</button>
-            </div>
-            <input type="hidden" id="ee-id">
-            <div class="fld-row">
-                <div class="fld">
-                    <label>Name</label>
-                    <input type="text" id="ee-name" maxlength="30">
-                </div>
-                <div class="fld">
-                    <label>Funktion</label>
-                    <input type="text" id="ee-role" maxlength="30">
-                </div>
-            </div>
-            <div class="fld-row">
-                <div class="fld">
-                    <label>Typ</label>
-                    <select id="ee-type">
-                        <option value="vz">Vollzeit</option>
-                        <option value="tz">Teilzeit</option>
-                        <option value="gfb">Geringfügig</option>
-                        <option value="rk">Reinigungskraft</option>
-                    </select>
-                </div>
-                <div class="fld">
-                    <label>Farbe</label>
-                    <select id="ee-col">
-                        <option value="blue">Blau</option>
-                        <option value="green">Grün</option>
-                        <option value="yellow">Gelb</option>
-                        <option value="red">Rot</option>
-                        <option value="purple">Lila</option>
-                    </select>
-                </div>
-            </div>
-            <div class="fld">
-                <label>Soll-Stunden / Woche</label>
-                <input type="number" id="ee-target" min="0" max="48" step="0.5" placeholder="leer = kein Soll">
-            </div>
-            <div class="fld-row">
-                <div class="fld">
-                    <label>Urlaubsstunden / Tag</label>
-                    <input type="number" id="ee-vac" min="0" max="12" step="0.25" placeholder="leer = Soll÷6">
-                    <div style="font-size:10px;color:var(--text3);margin-top:3px;">Leer lassen → wird aus Soll÷6 berechnet</div>
-                </div>
-                <div class="fld">
-                    <label>WhatsApp Nummer</label>
-                    <input type="tel" id="ee-phone" placeholder="+49 151 12345678" maxlength="20">
-                </div>
-            </div>
-            <div class="mbtns">
-                <div class="spacer"></div>
-                <button class="btn btn-sm" onclick="closeEditEmp()">Abbrechen</button>
-                <button class="btn btn-y btn-sm" onclick="saveEditEmp()">Speichern</button>
-            </div>
-        </div>
-    </div>
+  <div class="sched-wrap">
+    <table class="sched">
+      <thead id="t-head"></thead>
+      <tbody id="t-body"></tbody>
+      <tfoot id="t-foot"></tfoot>
+    </table>
+  </div>
 
-    <!-- MGMT OVERLAY -->
-    <div class="owrap" id="mgmt-ov" style="display:none">
-        <div class="pbox">
-            <div class="phdr">
-                <div class="ptitle">Mitarbeiter · Filiale <span id="mgmt-fil" style="color:var(--accent)">–</span></div>
-                <div style="display:flex;gap:5px;align-items:center;">
-                    <button class="btn btn-sm" onclick="exportJSON()" title="Als .json speichern">💾</button>
-                    <button class="btn btn-sm" onclick="document.getElementById('json-inp').click()" title="Aus .json laden">📂</button>
-                    <input type="file" id="json-inp" accept=".json" style="display:none" onchange="importJSON(this)">
-                    <button class="mclose" onclick="closeMgmt()">✕</button>
-                </div>
-            </div>
-            <div style="display:flex;gap:5px;margin-bottom:11px;">
-                <button class="btn btn-sm" id="mt-staff" onclick="switchMTab('staff')" style="flex:1">Mitarbeiter</button>
-                <button class="btn btn-sm btn-or" id="mt-guest" onclick="switchMTab('guest')" style="flex:1">← Gäste</button>
-            </div>
-            <div id="mt-staff-body">
-                <div id="emp-list"></div>
-                <div class="slbl" style="margin-top:10px;">Neu hinzufügen</div>
-                <div class="af">
-                    <input id="n-name" placeholder="Name" maxlength="30">
-                    <input id="n-role" placeholder="Funktion" maxlength="30">
-                    <select id="n-type">
-                        <option value="vz">Vollzeit</option>
-                        <option value="tz">Teilzeit</option>
-                        <option value="gfb" selected>Geringfügig</option>
-                        <option value="rk">Reinigungskraft</option>
-                    </select>
-                    <select id="n-col">
-                        <option value="blue">Blau</option>
-                        <option value="green">Grün</option>
-                        <option value="yellow" selected>Gelb</option>
-                        <option value="red">Rot</option>
-                        <option value="purple">Lila</option>
-                    </select>
-                </div>
-                <div class="af-r">
-                    <div></div>
-                    <button class="btn btn-y btn-sm" onclick="addEmp()">+ Hinzufügen</button>
-                </div>
-            </div>
-            <div id="mt-guest-body" style="display:none">
-                <div style="font-size:12px;color:var(--text2);margin-bottom:9px;line-height:1.6;">Mitarbeiter aus anderen Filialen — erscheinen als separate Spalte.</div>
-                <div id="guest-list"></div>
-                <div class="slbl" style="margin-top:10px;">Gast hinzufügen</div>
-                <div class="gaf">
-                    <input id="gn-name" placeholder="Name" maxlength="30">
-                    <input id="gn-from" placeholder="Von Filiale (Nr.)" maxlength="6">
-                    <input id="gn-role" placeholder="Funktion" maxlength="25">
-                </div>
-                <div class="gaf-r">
-                    <input id="gn-until" type="date">
-                    <select id="gn-col">
-                        <option value="blue">Blau</option>
-                        <option value="green" selected>Grün</option>
-                        <option value="yellow">Gelb</option>
-                        <option value="red">Rot</option>
-                    </select>
-                    <button class="btn btn-or btn-sm" onclick="addGuest()">← Gast</button>
-                </div>
-            </div>
-            <!-- import confirm -->
-            <div class="ic-box" id="ic-box">
-                <div class="ic-inner">
-                    <div style="font-size:13px;font-weight:600;margin-bottom:6px;">📂 Importieren</div>
-                    <div id="ic-msg" style="font-size:12px;color:var(--text2);margin-bottom:13px;line-height:1.6;"></div>
-                    <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                        <button class="btn btn-red btn-sm" id="ic-replace" onclick="doImport('replace')">Ersetzen</button>
-                        <button class="btn btn-y btn-sm" onclick="doImport('merge')">Hinzufügen</button>
-                        <button class="btn btn-sm" onclick="document.getElementById('ic-box').style.display='none';pendingImport=null;">Abbrechen</button>
-                    </div>
-                </div>
-            </div>
-            <div id="import-err"></div>
-        </div>
-    </div>
+  <div class="footer">
+    <label>Bundesland:<select id="bl-sel" onchange="setBL(this.value)">
+      <option value="BY" selected>Bayern (BY)</option>
+      <option value="BW">Baden-Württemberg</option><option value="BE">Berlin</option>
+      <option value="BB">Brandenburg</option><option value="HB">Bremen</option>
+      <option value="HH">Hamburg</option><option value="HE">Hessen</option>
+      <option value="MV">Mecklenburg-Vorpommern</option><option value="NI">Niedersachsen</option>
+      <option value="NW">Nordrhein-Westfalen</option><option value="RP">Rheinland-Pfalz</option>
+      <option value="SL">Saarland</option><option value="SN">Sachsen</option>
+      <option value="ST">Sachsen-Anhalt</option><option value="SH">Schleswig-Holstein</option>
+      <option value="TH">Thüringen</option>
+    </select></label>
+    <span id="hc-lbl" style="color:var(--accent)"></span>
+    <span class="sync-b sync-none" id="sync-b" onclick="showDiscord()" title="Discord Sync">⬡ Discord</span>
+    <span class="save-lbl" id="save-lbl"></span>
+  </div>
+</div>
 
-    <!-- DISCORD OVERLAY -->
-    <div class="owrap" id="discord-ov" style="display:none">
-        <div class="pbox" style="max-width:560px">
-            <div class="phdr">
-                <div class="ptitle" style="display:flex;align-items:center;gap:7px;"><span style="color:#7289da">⬡</span>Discord Export</div>
-                <button class="mclose" onclick="closeDiscord()">✕</button>
-            </div>
-            <div style="display:flex;gap:5px;margin-bottom:9px;align-items:center;">
-                <span style="font-size:11px;color:var(--text2);flex-shrink:0;">Format:</span>
-                <button class="btn btn-sm" id="dc-fmt-list" onclick="setDcFmt('list')" style="flex:1">• Liste</button>
-                <button class="btn btn-sm" id="dc-fmt-table" onclick="setDcFmt('table')" style="flex:1">⊞ Tabelle</button>
-                <span style="font-size:10px;color:var(--text3);margin-left:4px" id="dc-msg-count"></span>
-            </div>
-            <div style="font-size:11px;color:var(--text2);margin-bottom:5px;">Nachricht <span id="dc-msg-idx">1</span> von <span id="dc-msg-total">–</span> — jede wird separat gepostet:</div>
-            <div style="display:flex;gap:5px;margin-bottom:5px;">
-                <button class="btn btn-sm" id="dc-prev" onclick="dcNavMsg(-1)">◀</button>
-                <span style="font-size:11px;color:var(--text2);flex:1;display:flex;align-items:center;justify-content:center;" id="dc-msg-label">–</span>
-                <button class="btn btn-sm" id="dc-next" onclick="dcNavMsg(1)">▶</button>
-            </div>
-            <textarea id="discord-ta" readonly style="height:200px"></textarea>
-            <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
-                <button class="btn btn-y btn-sm" onclick="copyEl('discord-ta','dc-ok')">📋 Diese kopieren</button>
-                <button class="btn btn-sm" onclick="copyAllDc()">📋 Alle kopieren</button>
-                <span class="copy-ok" id="dc-ok">✓ Kopiert!</span>
-                <button class="btn btn-sm" onclick="genDiscord()" style="margin-left:auto">↻ Neu</button>
-            </div>
-            <!-- Webhook: visible plan channel -->
-            <div style="margin-top:12px;padding:10px;background:rgba(88,101,242,.08);border:1px solid rgba(88,101,242,.22);border-radius:var(--r);">
-                <div style="font-size:11px;font-weight:700;color:#7289da;margin-bottom:4px;">⬡ Dienstplan-Kanal · Filiale <span id="wh-fil">–</span></div>
-                <div style="font-size:10px;color:var(--text3);margin-bottom:7px;">Für Kollegen — sichtbarer Wochenplan (Text-Tabelle)</div>
-                <div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:8px;">
-                    <input type="url" id="wh-url" placeholder="https://discord.com/api/webhooks/… (sichtbarer Kanal)" style="background:var(--card2);border:1px solid var(--border2);color:var(--text);padding:7px 9px;border-radius:var(--r);font-size:11px;">
-                    <button class="btn btn-sm" onclick="saveWH()">Speichern</button>
-                </div>
-                <div id="wh-first-notice" style="display:none;font-size:11px;padding:6px 9px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.22);border-radius:var(--r);margin-bottom:8px;color:var(--go);line-height:1.6;">
-                    ⚠ Noch kein Post für diese Woche. Klicke <b>▶ Aktualisieren</b> für den ersten Post.
-                </div>
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                    <button class="btn btn-sm" onclick="testWH()">▶ Aktualisieren</button>
-                    <button class="btn btn-sm" onclick="testWHNew()" style="font-size:10px">+ Neu posten</button>
-                    <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer;">
-                        <input type="checkbox" id="wh-auto" onchange="toggleAutoWH(this.checked)" style="accent-color:var(--gi)"> Auto-Sync
-                    </label>
-                    <span id="wh-st" style="font-size:11px;color:var(--text2);margin-left:auto"></span>
-                </div>
-                <div style="margin-top:7px;font-size:10px;color:var(--text3);border-top:1px solid var(--border);padding-top:6px;line-height:1.5;">
-                    Auto-Sync standardmäßig <b>aus</b>. Plan als Text-Tabelle mit +–| Rahmen.
-                </div>
-            </div>
-            <!-- Webhook: private data channel -->
-            <div style="margin-top:10px;padding:10px 11px;background:rgba(16,185,129,.07);border:1px solid rgba(16,185,129,.22);border-radius:var(--r);">
-                <div style="font-size:11px;font-weight:700;color:var(--gi);margin-bottom:4px;">🔒 Privater Daten-Kanal · nur ML</div>
-                <div style="font-size:10px;color:var(--text3);margin-bottom:7px;">Für dich — Mitarbeiter, Schichten, Urlaubsdaten als JSON-Backup</div>
-                <div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:8px;">
-                    <input type="text" id="wh-data-url" placeholder="https://discord.com/api/webhooks/… (oder Sync-String mit |||ID)" style="background:var(--card2);border:1px solid var(--border2);color:var(--text);padding:7px 9px;border-radius:var(--r);font-size:11px;">
-                    <button class="btn btn-sm" onclick="saveDataWH()">Speichern</button>
-                </div>
-                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
-                    <button class="btn btn-sm" style="background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.3);color:var(--gi)" onclick="pushDataToDiscord()">💾 Daten sichern</button>
-                    <button class="btn btn-sm" style="background:rgba(88,166,255,.12);border-color:rgba(88,166,255,.3);color:var(--blue)" onclick="pullDataFromDiscord()">📥 Daten laden</button>
-                </div>
-                <div id="sync-st" style="font-size:11px;color:var(--text2);min-height:14px;line-height:1.6;"></div>
-                <div style="margin-top:5px;font-size:10px;color:var(--text3);line-height:1.6;">
-                    Nach dem ersten Speichern erscheint ein <b>Sync-String</b> (URL|||ID) im Feld — kopiere ihn für andere Geräte. Einfach einfügen → Speichern → Daten laden automatisch.
-                </div>
-            </div>
-            <!-- Archive -->
-            <div style="margin-top:11px;">
-                <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:7px;display:flex;align-items:center;gap:8px;">
-                    📁 Archiv — gepostete Wochen
-                    <button class="btn btn-sm" onclick="refreshArchive()" style="font-size:10px;padding:2px 7px;margin-left:auto">↻</button>
-                </div>
-                <div id="archive-list" style="max-height:160px;overflow-y:auto;"></div>
-                <div class="past-warn" id="past-warn">
-                    ⚠ Diese Woche wurde bereits in Discord archiviert. Änderungen werden die archivierten Nachrichten <b>überschreiben</b>. Verwende "Neu posten" um eine frische Kopie zu erstellen.
-                </div>
-            </div>
-            <div class="dtip">
-                <h3>📌 Kanal #<span id="d-fil-ch">XXXX</span>-dienstplan</h3>
-                <ol>
-                    <li>Jede KW bekommt eigene Nachrichten — alte KWs bleiben erhalten</li>
-                    <li>🔒 Gesperrte KWs werden nie überschrieben (auch nicht durch Auto-Sync)</li>
-                    <li>@everyone: Lesen ✓, Schreiben ✗ &nbsp;·&nbsp; ML/SML: Schreiben ✓</li>
-                </ol>
-            </div>
-        </div>
+<!-- FILIALE EDIT MODAL -->
+<div class="mwrap" id="fil-modal" style="display:none">
+  <div class="mbox" style="max-width:300px;text-align:center;">
+    <div class="mtitle" style="justify-content:center;margin-bottom:8px;">Filiale ändern</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px;">Nur die Nummer ändert sich — alle Daten bleiben erhalten.</div>
+    <input type="text" id="fil-inp" maxlength="6" inputmode="numeric" placeholder="Filiale-Nr." style="width:100%;background:var(--card2);border:1px solid var(--border2);color:var(--text);padding:9px 12px;border-radius:var(--r);font-size:16px;text-align:center;letter-spacing:2px;font-family:'JetBrains Mono',ui-monospace,monospace;">
+    <div class="mbtns" style="margin-top:12px;">
+      <button class="btn btn-sm" onclick="closeFil()">Abbrechen</button>
+      <div class="spacer"></div>
+      <button class="btn btn-y btn-sm" onclick="saveFil()">Speichern</button>
     </div>
+  </div>
+</div>
 
-    <!-- WHATSAPP OVERLAY -->
-    <div class="owrap" id="wa-ov" style="display:none">
-        <div class="pbox" style="max-width:540px">
-            <div class="phdr">
-                <div class="ptitle" style="display:flex;align-items:center;gap:7px;"><span style="color:#25d366;font-size:16px">●</span>WhatsApp Export</div>
-                <button class="mclose" onclick="closeWA()">✕</button>
-            </div>
-            <div style="display:flex;gap:5px;margin-bottom:9px;">
-                <button class="btn btn-sm" id="wa-t-week" onclick="switchWATab('week')" style="flex:1">Wochenplan</button>
-                <button class="btn btn-sm" id="wa-t-day" onclick="switchWATab('day')" style="flex:1">Tagesplan</button>
-                <button class="btn btn-sm" id="wa-t-personal" onclick="switchWATab('personal')" style="flex:1">Persönlich</button>
-            </div>
-            <div style="display:flex;gap:5px;margin-bottom:9px;align-items:center;">
-                <span style="font-size:11px;color:var(--text2);flex-shrink:0;">Format:</span>
-                <button class="btn btn-sm" id="wa-fmt-list" onclick="setWAFmt('list')" style="flex:1">• Liste</button>
-                <button class="btn btn-sm" id="wa-fmt-table" onclick="setWAFmt('table')" style="flex:1">⊞ Monospace-Tabelle</button>
-            </div>
-            <div id="wa-day-pick" style="display:none;margin-bottom:9px;">
-                <select id="wa-day-sel" onchange="genWA()" style="width:100%;background:var(--card2);border:1px solid var(--border2);color:var(--text);padding:7px 9px;border-radius:var(--r);font-size:13px;"></select>
-            </div>
-            <div id="wa-emp-pick" style="display:none;margin-bottom:9px;">
-                <select id="wa-emp-sel" onchange="genWA()" style="width:100%;background:var(--card2);border:1px solid var(--border2);color:var(--text);padding:7px 9px;border-radius:var(--r);font-size:13px;"></select>
-            </div>
-            <div style="font-size:11px;color:var(--text2);margin-bottom:5px;">Kopiere und füge in WhatsApp ein:</div>
-            <textarea id="wa-ta" readonly></textarea>
-            <div style="display:flex;align-items:center;gap:8px;">
-                <button class="btn btn-wa btn-sm" onclick="copyEl('wa-ta','wa-ok')" style="font-weight:700">📋 Kopieren</button>
-                <span class="copy-ok" id="wa-ok">✓ Kopiert!</span>
-                <button class="btn btn-sm" onclick="genWA()" style="margin-left:auto">↻ Neu</button>
-            </div>
-            <div class="wa-tip"><span style="color:#25d366;font-weight:600">Tipp:</span> Mitarbeiter mit gespeicherter Nummer erscheinen als <code style="font-size:11px;background:rgba(37,211,102,.12);padding:1px 4px;border-radius:3px;">@Vorname</code> — nach dem Einfügen
-                in WhatsApp antippen zum Markieren. Nummern unter ⚙ Mitarbeiter → ✏ eintragen.</div>
-        </div>
+<!-- SHIFT MODAL -->
+<div class="mwrap" id="shift-modal" style="display:none">
+  <div class="mbox">
+    <div class="mtitle"><span id="modal-lbl">Schicht</span><button class="mclose" onclick="closeShift()">✕</button></div>
+    <div class="fld-row">
+      <div class="fld"><label>Beginn</label><input type="time" id="s-start" value="08:00" step="900"></div>
+      <div class="fld"><label>Ende</label><input type="time" id="s-end" value="16:00" step="900"></div>
     </div>
+    <div class="fld-row">
+      <div class="fld"><label>Pause (Min.)</label><input type="number" id="s-pause" min="0" step="15" value="30"></div>
+      <div class="fld"><label>Typ</label>
+        <select id="s-type">
+          <option value="work">Arbeit</option><option value="free">Frei</option>
+          <option value="sick">Krank</option><option value="vacation">Urlaub</option>
+          <option value="bs">Berufsschule (BS)</option>
+          <option value="absent">Abwesend</option>
+        </select>
+      </div>
+    </div>
+    <div class="fld"><label>Notiz</label><input type="text" id="s-note" placeholder="z.B. Kasse, Lager…" maxlength="40"></div>
+    <div class="go-box" id="go-box">
+      <div class="go-box-title">→ Gastschicht bei anderer Filiale</div>
+      <label class="tlbl"><input type="checkbox" id="go-on" onchange="toggleGo()"> Mitarbeiter arbeitet heute woanders</label>
+      <div id="go-fields" style="display:none">
+        <div class="fld-row">
+          <div class="fld"><label>Filiale-Nr.</label><input type="text" id="go-fil" placeholder="z.B. 3227" maxlength="6"></div>
+          <div class="fld"><label>Zeiten zeigen?</label><select id="go-times"><option value="yes">Ja</option><option value="no">Nur Nr.</option></select></div>
+        </div>
+      </div>
+    </div>
+    <div class="mbtns">
+      <button class="btn btn-red btn-sm" onclick="clearShift()">✕ Frei</button>
+      <div class="spacer"></div>
+      <button class="btn btn-sm" onclick="closeShift()">Abbrechen</button>
+      <button class="btn btn-y btn-sm" onclick="saveShift()">Speichern</button>
+    </div>
+  </div>
+</div>
 
-    <!-- VACATION OVERLAY -->
-    <div class="owrap" id="vac-ov" style="display:none">
-        <div class="pbox" style="max-width:900px">
-            <div class="phdr">
-                <div class="ptitle">🏖 Urlaubsplanung <span id="vac-year" style="color:var(--accent);font-size:13px;margin-left:6px"></span></div>
-                <div style="display:flex;align-items:center;gap:8px;">
-                    <span style="font-size:11px;color:var(--text2)">Jahr:</span>
-                    <button class="btn btn-sm" onclick="changeVacYear(-1)">◀</button>
-                    <span id="vac-year-lbl" style="font-size:12px;font-weight:700;min-width:36px;text-align:center"></span>
-                    <button class="btn btn-sm" onclick="changeVacYear(1)">▶</button>
-                    <button class="mclose" onclick="closeVac()">✕</button>
-                </div>
-            </div>
-            <div style="font-size:11px;color:var(--text2);margin-bottom:8px;line-height:1.7;">
-                Klicke eine Zelle um eine KW als Urlaub zu markieren. Rot = mehrere gleichzeitig. Jeder hat <b>6 Wochen (30 Wochentage)</b> Urlaub.
-            </div>
-            <div class="vac-summary" id="vac-summary"></div>
-            <div class="vac-wrap">
-                <table class="vac" id="vac-table"></table>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:10px;font-size:11px;color:var(--text3);">
-                <span style="display:flex;align-items:center;gap:4px;"><span style="width:12px;height:12px;background:rgba(37,211,102,.18);border-radius:2px;display:inline-block"></span>Urlaub</span>
-                <span style="display:flex;align-items:center;gap:4px;"><span style="width:12px;height:12px;background:rgba(220,53,69,.18);border-radius:2px;display:inline-block"></span>Überschneidung</span>
-                <span style="margin-left:auto;font-size:10px;">Max. 6 Wochen / Mitarbeiter</span>
-            </div>
-        </div>
+<!-- EDIT EMPLOYEE MODAL -->
+<div class="mwrap" id="edit-emp-modal" style="display:none">
+  <div class="mbox">
+    <div class="mtitle"><span>Mitarbeiter bearbeiten</span><button class="mclose" onclick="closeEditEmp()">✕</button></div>
+    <input type="hidden" id="ee-id">
+    <div class="fld-row">
+      <div class="fld"><label>Name</label><input type="text" id="ee-name" maxlength="30"></div>
+      <div class="fld"><label>Funktion</label><input type="text" id="ee-role" maxlength="30"></div>
     </div>
+    <div class="fld-row">
+      <div class="fld"><label>Typ</label>
+        <select id="ee-type">
+          <option value="vz">Vollzeit</option><option value="tz">Teilzeit</option>
+          <option value="gfb">Geringfügig</option><option value="rk">Reinigungskraft</option>
+        </select>
+      </div>
+      <div class="fld"><label>Farbe</label>
+        <select id="ee-col">
+          <option value="blue">Blau</option><option value="green">Grün</option>
+          <option value="yellow">Gelb</option><option value="red">Rot</option><option value="purple">Lila</option>
+        </select>
+      </div>
+    </div>
+    <div class="fld"><label>Soll-Stunden / Woche</label>
+      <input type="number" id="ee-target" min="0" max="48" step="0.5" placeholder="leer = kein Soll">
+    </div>
+    <div class="fld-row">
+      <div class="fld"><label>Urlaubsstunden / Tag</label>
+        <input type="number" id="ee-vac" min="0" max="12" step="0.25" placeholder="leer = Soll÷6">
+        <div style="font-size:10px;color:var(--text3);margin-top:3px;">Leer lassen → wird aus Soll÷6 berechnet</div>
+      </div>
+      <div class="fld"><label>WhatsApp Nummer</label>
+        <input type="tel" id="ee-phone" placeholder="+49 151 12345678" maxlength="20">
+      </div>
+    </div>
+    <div class="mbtns">
+      <div class="spacer"></div>
+      <button class="btn btn-sm" onclick="closeEditEmp()">Abbrechen</button>
+      <button class="btn btn-y btn-sm" onclick="saveEditEmp()">Speichern</button>
+    </div>
+  </div>
+</div>
 
-    <!-- CONFLICT MODAL -->
-    <div class="mwrap" id="conflict-modal" style="display:none">
-        <div class="conflict-box">
-            <div class="conflict-title"><span style="color:var(--go)">⚠</span>Konflikt gefunden</div>
-            <div style="font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.6;" id="conflict-desc">Lokale Daten und Discord-Daten stimmen nicht überein.</div>
-            <div class="conflict-row">
-                <div class="conflict-side" id="cf-local">
-                    <div class="conflict-side-lbl" id="cf-local-lbl">Lokal</div>
-                    <div class="conflict-detail" id="cf-local-detail">–</div>
-                </div>
-                <div class="conflict-side" id="cf-discord">
-                    <div class="conflict-side-lbl" id="cf-discord-lbl">Discord</div>
-                    <div class="conflict-detail" id="cf-discord-detail">–</div>
-                </div>
-            </div>
-            <div class="mbtns">
-                <button class="btn btn-sm" id="cf-use-local" onclick="resolveConflict('local')">Lokal behalten</button>
-                <button class="btn btn-sm" id="cf-merge" onclick="resolveConflict('merge')" style="background:rgba(88,166,255,.12);border-color:rgba(88,166,255,.3);color:var(--blue)">Zusammenführen</button>
-                <button class="btn btn-y btn-sm" id="cf-use-discord" onclick="resolveConflict('discord')">Discord übernehmen</button>
-            </div>
-            <div style="margin-top:8px;font-size:10px;color:var(--text3);line-height:1.5;" id="cf-merge-hint"></div>
-        </div>
+<!-- MGMT OVERLAY -->
+<div class="owrap" id="mgmt-ov" style="display:none">
+  <div class="pbox">
+    <div class="phdr">
+      <div class="ptitle">Mitarbeiter · Filiale <span id="mgmt-fil" style="color:var(--accent)">–</span></div>
+      <div style="display:flex;gap:5px;align-items:center;">
+        <button class="btn btn-sm" onclick="exportJSON()" title="Als .json speichern">💾</button>
+        <button class="btn btn-sm" onclick="document.getElementById('json-inp').click()" title="Aus .json laden">📂</button>
+        <input type="file" id="json-inp" accept=".json" style="display:none" onchange="importJSON(this)">
+        <button class="mclose" onclick="closeMgmt()">✕</button>
+      </div>
     </div>
-    <script src="app.js"></script>
+    <div style="display:flex;gap:5px;margin-bottom:11px;">
+      <button class="btn btn-sm" id="mt-staff" onclick="switchMTab('staff')" style="flex:1">Mitarbeiter</button>
+      <button class="btn btn-sm btn-or" id="mt-guest" onclick="switchMTab('guest')" style="flex:1">← Gäste</button>
+    </div>
+    <div id="mt-staff-body">
+      <div id="emp-list"></div>
+      <div class="slbl" style="margin-top:10px;">Neu hinzufügen</div>
+      <div class="af">
+        <input id="n-name" placeholder="Name" maxlength="30">
+        <input id="n-role" placeholder="Funktion" maxlength="30">
+        <select id="n-type"><option value="vz">Vollzeit</option><option value="tz">Teilzeit</option><option value="gfb" selected>Geringfügig</option><option value="rk">Reinigungskraft</option></select>
+        <select id="n-col"><option value="blue">Blau</option><option value="green">Grün</option><option value="yellow" selected>Gelb</option><option value="red">Rot</option><option value="purple">Lila</option></select>
+      </div>
+      <div class="af-r"><div></div><button class="btn btn-y btn-sm" onclick="addEmp()">+ Hinzufügen</button></div>
+    </div>
+    <div id="mt-guest-body" style="display:none">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:9px;line-height:1.6;">Mitarbeiter aus anderen Filialen — erscheinen als separate Spalte.</div>
+      <div id="guest-list"></div>
+      <div class="slbl" style="margin-top:10px;">Gast hinzufügen</div>
+      <div class="gaf">
+        <input id="gn-name" placeholder="Name" maxlength="30">
+        <input id="gn-from" placeholder="Von Filiale (Nr.)" maxlength="6">
+        <input id="gn-role" placeholder="Funktion" maxlength="25">
+      </div>
+      <div class="gaf-r">
+        <input id="gn-until" type="date">
+        <select id="gn-col"><option value="blue">Blau</option><option value="green" selected>Grün</option><option value="yellow">Gelb</option><option value="red">Rot</option></select>
+        <button class="btn btn-or btn-sm" onclick="addGuest()">← Gast</button>
+      </div>
+    </div>
+    <!-- import confirm -->
+    <div class="ic-box" id="ic-box">
+      <div class="ic-inner">
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">📂 Importieren</div>
+        <div id="ic-msg" style="font-size:12px;color:var(--text2);margin-bottom:13px;line-height:1.6;"></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn btn-red btn-sm" id="ic-replace" onclick="doImport('replace')">Ersetzen</button>
+          <button class="btn btn-y btn-sm" onclick="doImport('merge')">Hinzufügen</button>
+          <button class="btn btn-sm" onclick="document.getElementById('ic-box').style.display='none';pendingImport=null;">Abbrechen</button>
+        </div>
+      </div>
+    </div>
+    <div id="import-err"></div>
+  </div>
+</div>
+
+<!-- DISCORD OVERLAY -->
+<div class="owrap" id="discord-ov" style="display:none">
+  <div class="pbox" style="max-width:560px">
+    <div class="phdr">
+      <div class="ptitle" style="display:flex;align-items:center;gap:7px;"><span style="color:#7289da">⬡</span>Discord Export</div>
+      <button class="mclose" onclick="closeDiscord()">✕</button>
+    </div>
+    <div style="display:flex;gap:5px;margin-bottom:9px;align-items:center;">
+      <span style="font-size:11px;color:var(--text2);flex-shrink:0;">Format:</span>
+      <button class="btn btn-sm" id="dc-fmt-list" onclick="setDcFmt('list')" style="flex:1">• Liste</button>
+      <button class="btn btn-sm" id="dc-fmt-table" onclick="setDcFmt('table')" style="flex:1">⊞ Tabelle</button>
+      <span style="font-size:10px;color:var(--text3);margin-left:4px" id="dc-msg-count"></span>
+    </div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:5px;">Nachricht <span id="dc-msg-idx">1</span> von <span id="dc-msg-total">–</span> — jede wird separat gepostet:</div>
+    <div style="display:flex;gap:5px;margin-bottom:5px;">
+      <button class="btn btn-sm" id="dc-prev" onclick="dcNavMsg(-1)">◀</button>
+      <span style="font-size:11px;color:var(--text2);flex:1;display:flex;align-items:center;justify-content:center;" id="dc-msg-label">–</span>
+      <button class="btn btn-sm" id="dc-next" onclick="dcNavMsg(1)">▶</button>
+    </div>
+    <textarea id="discord-ta" readonly style="height:200px"></textarea>
+    <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
+      <button class="btn btn-y btn-sm" onclick="copyEl('discord-ta','dc-ok')">📋 Diese kopieren</button>
+      <button class="btn btn-sm" onclick="copyAllDc()">📋 Alle kopieren</button>
+      <span class="copy-ok" id="dc-ok">✓ Kopiert!</span>
+      <button class="btn btn-sm" onclick="genDiscord()" style="margin-left:auto">↻ Neu</button>
+    </div>
+    <!-- Webhook: visible plan channel -->
+    <div style="margin-top:12px;padding:10px;background:rgba(88,101,242,.08);border:1px solid rgba(88,101,242,.22);border-radius:var(--r);">
+      <div style="font-size:11px;font-weight:700;color:#7289da;margin-bottom:4px;">⬡ Dienstplan-Kanal · Filiale <span id="wh-fil">–</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:7px;">Für Kollegen — sichtbarer Wochenplan (Text-Tabelle)</div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:8px;">
+        <input type="url" id="wh-url" placeholder="https://discord.com/api/webhooks/… (sichtbarer Kanal)" style="background:var(--card2);border:1px solid var(--border2);color:var(--text);padding:7px 9px;border-radius:var(--r);font-size:11px;">
+        <button class="btn btn-sm" onclick="saveWH()">Speichern</button>
+      </div>
+      <div id="wh-first-notice" style="display:none;font-size:11px;padding:6px 9px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.22);border-radius:var(--r);margin-bottom:8px;color:var(--go);line-height:1.6;">
+        ⚠ Noch kein Post für diese Woche. Klicke <b>▶ Aktualisieren</b> für den ersten Post.
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-sm" onclick="testWH()">▶ Aktualisieren</button>
+        <button class="btn btn-sm" onclick="testWHNew()" style="font-size:10px">+ Neu posten</button>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer;">
+          <input type="checkbox" id="wh-auto" onchange="toggleAutoWH(this.checked)" style="accent-color:var(--gi)">
+          Auto-Sync
+        </label>
+        <span id="wh-st" style="font-size:11px;color:var(--text2);margin-left:auto"></span>
+      </div>
+      <div style="margin-top:7px;font-size:10px;color:var(--text3);border-top:1px solid var(--border);padding-top:6px;line-height:1.5;">
+        Auto-Sync standardmäßig <b>aus</b>. Plan als Text-Tabelle mit +–| Rahmen.
+      </div>
+    </div>
+    <!-- Webhook: private data channel -->
+    <div style="margin-top:10px;padding:10px 11px;background:rgba(16,185,129,.07);border:1px solid rgba(16,185,129,.22);border-radius:var(--r);">
+      <div style="font-size:11px;font-weight:700;color:var(--gi);margin-bottom:4px;">🔒 Privater Daten-Kanal · nur ML</div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:7px;">Für dich — Mitarbeiter, Schichten, Urlaubsdaten als JSON-Backup</div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:8px;">
+        <input type="text" id="wh-data-url" placeholder="https://discord.com/api/webhooks/…" style="background:var(--card2);border:1px solid var(--border2);color:var(--text);padding:7px 9px;border-radius:var(--r);font-size:11px;">
+        <button class="btn btn-sm" onclick="saveDataWH()">Speichern</button>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+        <button class="btn btn-sm" style="background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.3);color:var(--gi)" onclick="pushDataToDiscord()">💾 Daten sichern</button>
+        <button class="btn btn-sm" style="background:rgba(88,166,255,.12);border-color:rgba(88,166,255,.3);color:var(--blue)" onclick="pullDataFromDiscord()">📥 Daten laden</button>
+      </div>
+      <div id="sync-st" style="font-size:11px;color:var(--text2);min-height:14px;line-height:1.6;"></div>
+      <div style="margin-top:5px;font-size:10px;color:var(--text3);line-height:1.6;">
+        Nach dem ersten <b>💾 Daten sichern</b> enthält die URL automatisch die Registry-ID als <code style="font-size:10px">#fragment</code>. Diese URL einfach kopieren und auf anderen Geräten einfügen → Speichern → Daten laden automatisch.
+      </div>
+    </div>
+    <!-- Archive -->
+    <div style="margin-top:11px;">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:7px;display:flex;align-items:center;gap:8px;">
+        📁 Archiv — gepostete Wochen
+        <button class="btn btn-sm" onclick="refreshArchive()" style="font-size:10px;padding:2px 7px;margin-left:auto">↻</button>
+      </div>
+      <div id="archive-list" style="max-height:160px;overflow-y:auto;"></div>
+      <div class="past-warn" id="past-warn">
+        ⚠ Diese Woche wurde bereits in Discord archiviert. Änderungen werden die archivierten Nachrichten <b>überschreiben</b>. Verwende "Neu posten" um eine frische Kopie zu erstellen.
+      </div>
+    </div>
+    <div class="dtip">
+      <h3>📌 Kanal #<span id="d-fil-ch">XXXX</span>-dienstplan</h3>
+      <ol>
+        <li>Jede KW bekommt eigene Nachrichten — alte KWs bleiben erhalten</li>
+        <li>🔒 Gesperrte KWs werden nie überschrieben (auch nicht durch Auto-Sync)</li>
+        <li>@everyone: Lesen ✓, Schreiben ✗ &nbsp;·&nbsp; ML/SML: Schreiben ✓</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<!-- WHATSAPP OVERLAY -->
+<div class="owrap" id="wa-ov" style="display:none">
+  <div class="pbox" style="max-width:540px">
+    <div class="phdr">
+      <div class="ptitle" style="display:flex;align-items:center;gap:7px;"><span style="color:#25d366;font-size:16px">●</span>WhatsApp Export</div>
+      <button class="mclose" onclick="closeWA()">✕</button>
+    </div>
+    <div style="display:flex;gap:5px;margin-bottom:9px;">
+      <button class="btn btn-sm" id="wa-t-week" onclick="switchWATab('week')" style="flex:1">Wochenplan</button>
+      <button class="btn btn-sm" id="wa-t-day" onclick="switchWATab('day')" style="flex:1">Tagesplan</button>
+      <button class="btn btn-sm" id="wa-t-personal" onclick="switchWATab('personal')" style="flex:1">Persönlich</button>
+    </div>
+    <div style="display:flex;gap:5px;margin-bottom:9px;align-items:center;">
+      <span style="font-size:11px;color:var(--text2);flex-shrink:0;">Format:</span>
+      <button class="btn btn-sm" id="wa-fmt-list" onclick="setWAFmt('list')" style="flex:1">• Liste</button>
+      <button class="btn btn-sm" id="wa-fmt-table" onclick="setWAFmt('table')" style="flex:1">⊞ Monospace-Tabelle</button>
+    </div>
+    <div id="wa-day-pick" style="display:none;margin-bottom:9px;">
+      <select id="wa-day-sel" onchange="genWA()" style="width:100%;background:var(--card2);border:1px solid var(--border2);color:var(--text);padding:7px 9px;border-radius:var(--r);font-size:13px;"></select>
+    </div>
+    <div id="wa-emp-pick" style="display:none;margin-bottom:9px;">
+      <select id="wa-emp-sel" onchange="genWA()" style="width:100%;background:var(--card2);border:1px solid var(--border2);color:var(--text);padding:7px 9px;border-radius:var(--r);font-size:13px;"></select>
+    </div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:5px;">Kopiere und füge in WhatsApp ein:</div>
+    <textarea id="wa-ta" readonly></textarea>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button class="btn btn-wa btn-sm" onclick="copyEl('wa-ta','wa-ok')" style="font-weight:700">📋 Kopieren</button>
+      <span class="copy-ok" id="wa-ok">✓ Kopiert!</span>
+      <button class="btn btn-sm" onclick="genWA()" style="margin-left:auto">↻ Neu</button>
+    </div>
+    <div class="wa-tip"><span style="color:#25d366;font-weight:600">Tipp:</span> Mitarbeiter mit gespeicherter Nummer erscheinen als <code style="font-size:11px;background:rgba(37,211,102,.12);padding:1px 4px;border-radius:3px;">@Vorname</code> — nach dem Einfügen in WhatsApp antippen zum Markieren. Nummern unter ⚙ Mitarbeiter → ✏ eintragen.</div>
+  </div>
+</div>
+
+<!-- VACATION OVERLAY -->
+<div class="owrap" id="vac-ov" style="display:none">
+  <div class="pbox" style="max-width:900px">
+    <div class="phdr">
+      <div class="ptitle">🏖 Urlaubsplanung <span id="vac-year" style="color:var(--accent);font-size:13px;margin-left:6px"></span></div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:11px;color:var(--text2)">Jahr:</span>
+        <button class="btn btn-sm" onclick="changeVacYear(-1)">◀</button>
+        <span id="vac-year-lbl" style="font-size:12px;font-weight:700;min-width:36px;text-align:center"></span>
+        <button class="btn btn-sm" onclick="changeVacYear(1)">▶</button>
+        <button class="mclose" onclick="closeVac()">✕</button>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:8px;line-height:1.7;">
+      Klicke eine Zelle um eine KW als Urlaub zu markieren. Rot = mehrere gleichzeitig. Jeder hat <b>6 Wochen (30 Wochentage)</b> Urlaub.
+    </div>
+    <div class="vac-summary" id="vac-summary"></div>
+    <div class="vac-wrap"><table class="vac" id="vac-table"></table></div>
+    <div style="display:flex;gap:8px;margin-top:10px;font-size:11px;color:var(--text3);">
+      <span style="display:flex;align-items:center;gap:4px;"><span style="width:12px;height:12px;background:rgba(37,211,102,.18);border-radius:2px;display:inline-block"></span>Urlaub</span>
+      <span style="display:flex;align-items:center;gap:4px;"><span style="width:12px;height:12px;background:rgba(220,53,69,.18);border-radius:2px;display:inline-block"></span>Überschneidung</span>
+      <span style="margin-left:auto;font-size:10px;">Max. 6 Wochen / Mitarbeiter</span>
+    </div>
+  </div>
+</div>
+
+<!-- CONFLICT MODAL -->
+<div class="mwrap" id="conflict-modal" style="display:none">
+  <div class="conflict-box">
+    <div class="conflict-title"><span style="color:var(--go)">⚠</span>Konflikt gefunden</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.6;" id="conflict-desc">Lokale Daten und Discord-Daten stimmen nicht überein.</div>
+    <div class="conflict-row">
+      <div class="conflict-side" id="cf-local">
+        <div class="conflict-side-lbl" id="cf-local-lbl">Lokal</div>
+        <div class="conflict-detail" id="cf-local-detail">–</div>
+      </div>
+      <div class="conflict-side" id="cf-discord">
+        <div class="conflict-side-lbl" id="cf-discord-lbl">Discord</div>
+        <div class="conflict-detail" id="cf-discord-detail">–</div>
+      </div>
+    </div>
+    <div class="mbtns">
+      <button class="btn btn-sm" id="cf-use-local" onclick="resolveConflict('local')">Lokal behalten</button>
+      <button class="btn btn-sm" id="cf-merge" onclick="resolveConflict('merge')" style="background:rgba(88,166,255,.12);border-color:rgba(88,166,255,.3);color:var(--blue)">Zusammenführen</button>
+      <button class="btn btn-y btn-sm" id="cf-use-discord" onclick="resolveConflict('discord')">Discord übernehmen</button>
+    </div>
+    <div style="margin-top:8px;font-size:10px;color:var(--text3);line-height:1.5;" id="cf-merge-hint"></div>
+  </div>
+</div>
+<script src="app.js"></script>
 </body>
-
 </html>
