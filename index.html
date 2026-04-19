@@ -47,7 +47,6 @@
       <button class="btn btn-or btn-sm" onclick="showMgmt()">⚙ Mitarbeiter</button>
       <button class="btn btn-sm" onclick="showMgmt('guest')">← Gast</button>
       <button class="btn btn-y btn-sm" onclick="showDiscord()">Discord ↗</button>
-      <button class="btn btn-wa btn-sm" onclick="showWA()">WhatsApp ↗</button>
       <button class="btn btn-sm" style="background:rgba(37,211,102,.08);border-color:rgba(37,211,102,.25);color:var(--gi)" onclick="showVac()">🏖 Urlaub</button>
     </div>
   </div>
@@ -239,29 +238,17 @@
       <div class="ptitle" style="display:flex;align-items:center;gap:7px;"><span style="color:#7289da">⬡</span>Discord Export</div>
       <button class="mclose" onclick="closeDiscord()">✕</button>
     </div>
-    <div style="display:flex;gap:5px;margin-bottom:9px;align-items:center;">
-      <span style="font-size:11px;color:var(--text2);flex-shrink:0;">Format:</span>
-      <button class="btn btn-sm" id="dc-fmt-list" onclick="setDcFmt('list')" style="flex:1">• Liste</button>
-      <button class="btn btn-sm" id="dc-fmt-table" onclick="setDcFmt('table')" style="flex:1">⊞ Tabelle</button>
-      <span style="font-size:10px;color:var(--text3);margin-left:4px" id="dc-msg-count"></span>
-    </div>
-    <div style="font-size:11px;color:var(--text2);margin-bottom:5px;">Nachricht <span id="dc-msg-idx">1</span> von <span id="dc-msg-total">–</span> — jede wird separat gepostet:</div>
-    <div style="display:flex;gap:5px;margin-bottom:5px;">
-      <button class="btn btn-sm" id="dc-prev" onclick="dcNavMsg(-1)">◀</button>
-      <span style="font-size:11px;color:var(--text2);flex:1;display:flex;align-items:center;justify-content:center;" id="dc-msg-label">–</span>
-      <button class="btn btn-sm" id="dc-next" onclick="dcNavMsg(1)">▶</button>
-    </div>
-    <textarea id="discord-ta" readonly style="height:200px"></textarea>
+    <!-- image preview -->
+    <canvas id="plan-canvas" style="width:100%;border-radius:var(--r);border:1px solid var(--border);display:block;margin-bottom:7px;"></canvas>
     <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
-      <button class="btn btn-y btn-sm" onclick="copyEl('discord-ta','dc-ok')">📋 Diese kopieren</button>
-      <button class="btn btn-sm" onclick="copyAllDc()">📋 Alle kopieren</button>
-      <span class="copy-ok" id="dc-ok">✓ Kopiert!</span>
+      <button class="btn btn-y btn-sm" onclick="downloadPlanPNG()">⬇ PNG laden</button>
+      <span class="copy-ok" id="dc-img-ok"></span>
       <button class="btn btn-sm" onclick="genDiscord()" style="margin-left:auto">↻ Neu</button>
     </div>
     <!-- Webhook: visible plan channel -->
     <div style="margin-top:12px;padding:10px;background:rgba(88,101,242,.08);border:1px solid rgba(88,101,242,.22);border-radius:var(--r);">
       <div style="font-size:11px;font-weight:700;color:#7289da;margin-bottom:4px;">⬡ Dienstplan-Kanal · Filiale <span id="wh-fil">–</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-bottom:7px;">Für Kollegen — sichtbarer Wochenplan (Text-Tabelle)</div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:7px;">Für Kollegen — Wochenplan als Bild oder Text</div>
       <div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:8px;">
         <input type="url" id="wh-url" placeholder="https://discord.com/api/webhooks/… (sichtbarer Kanal)" style="background:var(--card2);border:1px solid var(--border2);color:var(--text);padding:7px 9px;border-radius:var(--r);font-size:11px;">
         <button class="btn btn-sm" onclick="saveWH()">Speichern</button>
@@ -321,43 +308,9 @@
   </div>
 </div>
 
-<!-- WHATSAPP OVERLAY -->
-<div class="owrap" id="wa-ov" style="display:none">
-  <div class="pbox" style="max-width:540px">
-    <div class="phdr">
-      <div class="ptitle" style="display:flex;align-items:center;gap:7px;"><span style="color:#25d366;font-size:16px">●</span>WhatsApp Export</div>
-      <button class="mclose" onclick="closeWA()">✕</button>
-    </div>
-    <div style="display:flex;gap:5px;margin-bottom:9px;">
-      <button class="btn btn-sm" id="wa-t-week" onclick="switchWATab('week')" style="flex:1">Wochenplan</button>
-      <button class="btn btn-sm" id="wa-t-day" onclick="switchWATab('day')" style="flex:1">Tagesplan</button>
-      <button class="btn btn-sm" id="wa-t-personal" onclick="switchWATab('personal')" style="flex:1">Persönlich</button>
-    </div>
-    <div style="display:flex;gap:5px;margin-bottom:9px;align-items:center;">
-      <span style="font-size:11px;color:var(--text2);flex-shrink:0;">Format:</span>
-      <button class="btn btn-sm" id="wa-fmt-list" onclick="setWAFmt('list')" style="flex:1">• Liste</button>
-      <button class="btn btn-sm" id="wa-fmt-table" onclick="setWAFmt('table')" style="flex:1">⊞ Monospace-Tabelle</button>
-    </div>
-    <div id="wa-day-pick" style="display:none;margin-bottom:9px;">
-      <select id="wa-day-sel" onchange="genWA()" style="width:100%;background:var(--card2);border:1px solid var(--border2);color:var(--text);padding:7px 9px;border-radius:var(--r);font-size:13px;"></select>
-    </div>
-    <div id="wa-emp-pick" style="display:none;margin-bottom:9px;">
-      <select id="wa-emp-sel" onchange="genWA()" style="width:100%;background:var(--card2);border:1px solid var(--border2);color:var(--text);padding:7px 9px;border-radius:var(--r);font-size:13px;"></select>
-    </div>
-    <div style="font-size:11px;color:var(--text2);margin-bottom:5px;">Kopiere und füge in WhatsApp ein:</div>
-    <textarea id="wa-ta" readonly></textarea>
-    <div style="display:flex;align-items:center;gap:8px;">
-      <button class="btn btn-wa btn-sm" onclick="copyEl('wa-ta','wa-ok')" style="font-weight:700">📋 Kopieren</button>
-      <span class="copy-ok" id="wa-ok">✓ Kopiert!</span>
-      <button class="btn btn-sm" onclick="genWA()" style="margin-left:auto">↻ Neu</button>
-    </div>
-    <div class="wa-tip"><span style="color:#25d366;font-weight:600">Tipp:</span> Mitarbeiter mit gespeicherter Nummer erscheinen als <code style="font-size:11px;background:rgba(37,211,102,.12);padding:1px 4px;border-radius:3px;">@Vorname</code> — nach dem Einfügen in WhatsApp antippen zum Markieren. Nummern unter ⚙ Mitarbeiter → ✏ eintragen.</div>
-  </div>
-</div>
-
 <!-- VACATION OVERLAY -->
 <div class="owrap" id="vac-ov" style="display:none">
-  <div class="pbox" style="max-width:900px">
+  <div class="pbox" style="width:fit-content;max-width:96vw;">
     <div class="phdr">
       <div class="ptitle">🏖 Urlaubsplanung <span id="vac-year" style="color:var(--accent);font-size:13px;margin-left:6px"></span></div>
       <div style="display:flex;align-items:center;gap:8px;">
