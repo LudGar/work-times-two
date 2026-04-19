@@ -3,7 +3,12 @@ const DATA_KEY = 'dp-data';
 const FIL_KEY = 'dp-filiale';
 const BL_KEY = 'dp-bl';
 const WH_KEY = 'dp-wh';
+const WH_DATA_KEY = 'dp-wh-data';
 const WH_MSG_KEY = 'dp-whmsg';
+const WH_LOCK_KEY = 'dp-whlocked';
+const WH_DATA_ID = 'dp-wh-dataid';
+const WH_SHIFTS_ID = 'dp-wh-shiftsid';
+const VAC_KEY = 'dp-vac';
 const DAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const MONTHS = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 const TYPE_L = {
@@ -91,7 +96,8 @@ function loadData() {
 function saveData() {
     localStorage.setItem(DATA_KEY + '-' + filiale, JSON.stringify({
         employees: state.employees,
-        shifts: state.shifts
+        shifts: state.shifts,
+        ts: new Date().toISOString()
     }));
     showSave('Gespeichert');
     debouncedWH();
@@ -268,6 +274,30 @@ function dayTotalH(ds) {
         }, 0);
 }
 
+// ── SHIFT TIME COLOR ─────────────────────
+function shiftTimeClass(start, end) {
+    if (!start || !end) return '';
+    const toM = t => {
+        const [h, m] = t.split(':').map(Number);
+        return h * 60 + m;
+    };
+    const s = toM(start),
+        e = toM(end);
+    const SPLIT = 12 * 60 + 30; // 12:30
+    const MS = 6 * 60,
+        ME = SPLIT,
+        AS = SPLIT,
+        AE = 20 * 60;
+    const mMins = Math.max(0, Math.min(e, ME) - Math.max(s, MS));
+    const aMins = Math.max(0, Math.min(e, AE) - Math.max(s, AS));
+    const total = mMins + aMins;
+    if (total === 0) return '';
+    const mr = mMins / total;
+    if (mr > 0.65) return 'sh-early'; // mostly 6-12:30 → yellow
+    if (mr < 0.35) return 'sh-late'; // mostly 12:30-20 → blue
+    return 'sh-mixed'; // split → orange
+}
+
 // ── RENDER ───────────────────────────────
 function render() {
     const {
@@ -294,7 +324,8 @@ function render() {
     // HEAD
     let th = `<tr><th class="day-th day-col"><div class="day-cell" style="min-height:50px"><div style="font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px">Tag</div></div></th>`;
     home.forEach(e => {
-        th += `<th class="emp-th"><div class="emp-hdr"><div class="emp-name" style="color:${COL[e.col]||'var(--text)'}">${esc(e.name)}</div><div class="emp-role">${esc(e.role)}</div><div class="emp-badges"><span class="badge ${TYPE_B[e.type]||'badge-gfb'}">${TYPE_L[e.type]||e.type}</span></div></div></th>`;
+        const sollLbl = e.weeklyTarget ? `<div style="font-size:9px;color:var(--text3);margin-top:2px">Soll: ${String(e.weeklyTarget).replace('.',',')} Std/Wo</div>` : '';
+        th += `<th class="emp-th"><div class="emp-hdr"><div class="emp-name" style="color:${COL[e.col]||'var(--text)'}">${esc(e.name)}</div><div class="emp-role">${esc(e.role)}</div><div class="emp-badges"><span class="badge ${TYPE_B[e.type]||'badge-gfb'}">${TYPE_L[e.type]||e.type}</span></div>${sollLbl}</div></th>`;
     });
     if (hasG) {
         th += `<th class="div-col"></th>`;
@@ -326,6 +357,7 @@ function render() {
             if (isGo) cc += ' go-c';
             else if (sh && sh.type === 'bs') cc += ' bs-c';
             else if (!sh || sh.type === 'free') cc += ' frei-c';
+            // time highlight applied to text, not background
             body += `<td><div class="${cc}" onclick="openShift('${ds}','${e.id}','${dl} ${day.getDate()}.${day.getMonth()+1}.','${esc(e.name)}')" title="Klicken zum Bearbeiten">`;
             if (ft && !sh) {
                 body += `<div class="hol-ov">FEIERTAG</div><div class="se">+</div>`;
@@ -350,7 +382,13 @@ function render() {
                 if (sh.note) body += `<div class="sn">${esc(sh.note)}</div>`;
             } else {
                 const h = calcH(sh.start, sh.end, sh.pause);
-                body += `<div class="st">${sh.start}<br><span style="color:var(--text3)">–</span>${sh.end}</div>`;
+                const tc = shiftTimeClass(sh.start, sh.end);
+                const tcCls = tc ? {
+                    "sh-early": 'sh-early-txt',
+                    "sh-late": 'sh-late-txt',
+                    "sh-mixed": 'sh-mixed-txt'
+                } [tc] || '' : '';
+                body += `<div class="st${tcCls?' '+tcCls:''}">` + `${sh.start}<br><span style="color:var(--text3)">–</span>${sh.end}</div>`;
                 if (h > 0) body += `<div class="sh">${fmtH(h)}</div>`;
                 if (sh.pause > 0) body += `<div class="sp">P: ${sh.pause} Min.</div>`;
                 if (sh.note) body += `<div class="sn">${esc(sh.note)}</div>`;
@@ -397,21 +435,28 @@ function render() {
             d = wkD(e.id);
         const isRK = e.type === 'rk';
         const tgt = e.weeklyTarget ? parseFloat(e.weeklyTarget) : null;
-        let diff = '';
         if (isRK) {
             const over = h > RK_CAP;
-            const capCls = over ? 'over' : h >= RK_CAP * 0.9 ? 'near' : '';
-            diff = `<div style="font-size:9px;margin-top:2px" class="${capCls}">${fmtH(h)||'0 Std'} / ${RK_CAP} Std${over?' <span style=\"color:var(--red)\">⚠</span>':''}</div><div style="font-size:8px;color:var(--text3);margin-top:1px">exkl. Team-Summe</div>`;
-            foot += `<td><div style="padding:5px 8px"><div class="tot-h" style="color:${over?'var(--red)':h>0?'var(--text2)':'var(--text3)'}">${h>0?fmtH(h):'—'}</div>${diff}${d>0?`<div style="font-size:9px;color:var(--text2);margin-top:1px">${d}T</div>`:''}</div></td>`;
+            const rkColor = over ? 'var(--red)' : h > 0 ? 'var(--text2)' : 'var(--text3)';
+            const rkSuffix = h > 0 ? ` <span style="font-size:10px;color:var(--text3)">/ ${RK_CAP} Std${over?' ⚠':''}</span>` : '';
+            foot += `<td><div style="padding:5px 8px"><div class="tot-h" style="color:${rkColor}">${h>0?fmtH(h):'—'}${rkSuffix}</div><div style="font-size:8px;color:var(--text3);margin-top:1px">exkl.</div>${d>0?`<div style="font-size:9px;color:var(--text2);margin-top:1px">${d}T</div>`:''}</div></td>`;
         } else {
-            let cls = '';
-            if (tgt) {
-                const dv = Math.round((h - tgt) * 100) / 100;
-                const sign = dv > 0.05 ? '+' : '';
-                cls = dv > 0.05 ? 'over' : dv < -0.5 ? 'under' : 'near';
-                diff = `<div style="font-size:9px;margin-top:1px" class="${cls}">${sign}${String(dv).replace('.',',')} / ${String(tgt).replace('.',',')} Std</div>`;
+            let dispH = '—';
+            let dispCls = 'var(--text3)';
+            if (h > 0) {
+                if (tgt) {
+                    const dv = Math.round((h - tgt) * 100) / 100;
+                    const sign = dv > 0 ? '+' : '';
+                    const dcls = dv > 0.05 ? 'var(--red)' : dv < -0.5 ? 'var(--green)' : 'var(--accent)';
+                    const dvStr = dv !== 0 ? ` <span style="font-size:11px;color:${dcls}">(${sign}${String(dv).replace('.',',')})</span>` : '';
+                    dispH = `${fmtH(h)}${dvStr}`;
+                    dispCls = 'var(--accent)';
+                } else {
+                    dispH = fmtH(h);
+                    dispCls = 'var(--accent)';
+                }
             }
-            foot += `<td><div style="padding:5px 8px"><div class="tot-h" style="color:${h>0?'var(--accent)':'var(--text3)'}">${h>0?fmtH(h):'—'}</div>${diff}${d>0?`<div style="font-size:9px;color:var(--text2);margin-top:1px">${d}T</div>`:''}</div></td>`;
+            foot += `<td><div style="padding:5px 8px"><div class="tot-h" style="color:${dispCls}">${dispH}</div>${d>0?`<div style="font-size:9px;color:var(--text2);margin-top:1px">${d}T</div>`:''}</div></td>`;
         }
     });
     if (hasG) {
@@ -749,6 +794,7 @@ function changeWeek(dir) {
     state.monday = addDays(state.monday, dir * 7);
     render();
     updateSyncBadge();
+    if (document.getElementById('discord-ov').style.display !== 'none') refreshArchive();
 }
 
 function goToday() {
@@ -766,6 +812,8 @@ function setBL(bl) {
 // ── WEBHOOK ──────────────────────────────
 const getWH = () => localStorage.getItem(WH_KEY + '-' + filiale) || '';
 const setWH = url => localStorage.setItem(WH_KEY + '-' + filiale, url);
+const getDataWH = () => localStorage.getItem(WH_DATA_KEY + '-' + filiale) || getWH(); // fallback to plan WH if not set separately
+const setDataWH = url => localStorage.setItem(WH_DATA_KEY + '-' + filiale, url);
 const getWHMsgIds = wk => {
     try {
         return JSON.parse(localStorage.getItem(WH_MSG_KEY + '-' + filiale + '-' + wk)) || [];
@@ -774,15 +822,55 @@ const getWHMsgIds = wk => {
     }
 };
 const setWHMsgIds = (wk, ids) => localStorage.setItem(WH_MSG_KEY + '-' + filiale + '-' + wk, JSON.stringify(ids));
+const isWkLocked = wk => {
+    try {
+        const l = JSON.parse(localStorage.getItem(WH_LOCK_KEY + '-' + filiale) || '[]');
+        return l.includes(wk);
+    } catch {
+        return false;
+    }
+};
+const setWkLocked = (wk, on) => {
+    try {
+        const l = JSON.parse(localStorage.getItem(WH_LOCK_KEY + '-' + filiale) || '[]');
+        const s = new Set(l);
+        on ? s.add(wk) : s.delete(wk);
+        localStorage.setItem(WH_LOCK_KEY + '-' + filiale, JSON.stringify([...s]));
+    } catch {}
+};
+
+// All weeks that have been posted (have stored message IDs)
+function getPostedWeeks() {
+    const prefix = WH_MSG_KEY + '-' + filiale + '-';
+    const weeks = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(prefix)) {
+            const wk = key.slice(prefix.length);
+            try {
+                const ids = JSON.parse(localStorage.getItem(key) || '[]');
+                if (ids.length) weeks.push(wk);
+            } catch {}
+        }
+    }
+    return weeks.sort().reverse(); // newest first
+}
 
 function updateSyncBadge() {
     const b = document.getElementById('sync-b');
     if (!b) return;
+    const wk = fmtDate(state.monday);
     const hasUrl = !!getWH();
-    const hasMsgIds = !!getWHMsgIds(fmtDate(state.monday)).length;
+    const hasMsgIds = !!getWHMsgIds(wk).length;
+    const locked = isWkLocked(wk);
     if (!hasUrl) {
         b.className = 'sync-b sync-none';
         b.textContent = '⬡ Discord';
+        return;
+    }
+    if (locked) {
+        b.className = 'sync-b sync-lock';
+        b.textContent = '🔒 KW archiviert';
         return;
     }
     if (!hasMsgIds) {
@@ -799,11 +887,65 @@ function updateSyncBadge() {
     }
 }
 
+function refreshArchive() {
+    const el = document.getElementById('archive-list');
+    if (!el) return;
+    const weeks = getPostedWeeks();
+    const curWk = fmtDate(state.monday);
+    if (!weeks.length) {
+        el.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:6px 8px;">Noch keine Wochen gepostet.</div>';
+        return;
+    }
+    el.innerHTML = weeks.map(wk => {
+        const locked = isWkLocked(wk);
+        const isCur = wk === curWk;
+        const d = new Date(wk);
+        const kw = getKW(d);
+        const label = `KW ${kw} · ${d.getDate()}.${d.getMonth()+1}.${d.getFullYear()}`;
+        const ids = getWHMsgIds(wk);
+        return `<div class="archive-row${locked?' locked':''}">
+      <span class="archive-kw">${locked?'🔒 ':''}KW ${kw}</span>
+      <span class="archive-date">${d.getDate()}.${d.getMonth()+1}.${d.getFullYear()}${isCur?' ← aktuell':''}</span>
+      <span class="archive-count">${ids.length} Msg</span>
+      <button class="btn btn-sm" style="font-size:10px;padding:2px 6px" onclick="lockWeek('${wk}',${!locked})">${locked?'🔓 Entsperren':'🔒 Sperren'}</button>
+    </div>`;
+    }).join('');
+    // Show/hide past-warn
+    const pw = document.getElementById('past-warn');
+    if (pw) pw.style.display = (getWHMsgIds(curWk).length && !isWkLocked(curWk) && curWk !== fmtDate(getMondayOfWeek(new Date()))) ? 'block' : 'none';
+}
+
+function lockWeek(wk, lock) {
+    setWkLocked(wk, lock);
+    refreshArchive();
+    updateSyncBadge();
+    if (lock && autoWH && wk === fmtDate(state.monday)) {
+        autoWH = false;
+        const auto = document.getElementById('wh-auto');
+        if (auto) auto.checked = false;
+        const st = document.getElementById('wh-st');
+        if (st) st.textContent = 'Auto-Sync deaktiviert (KW gesperrt)';
+        setTimeout(() => {
+            if (st) st.textContent = '';
+        }, 3000);
+    }
+}
+
 function toggleAutoWH(on) {
+    const wk = fmtDate(state.monday);
+    if (on && isWkLocked(wk)) {
+        const st = document.getElementById('wh-st');
+        if (st) st.textContent = '⚠ KW ist gesperrt — erst entsperren';
+        setTimeout(() => {
+            if (st) st.textContent = '';
+        }, 3000);
+        document.getElementById('wh-auto').checked = false;
+        return;
+    }
     autoWH = on;
     updateSyncBadge();
     const st = document.getElementById('wh-st');
-    if (on && !getWHMsgIds(fmtDate(state.monday)).length && getWH()) {
+    if (on && !getWHMsgIds(wk).length && getWH()) {
         st.textContent = '⚠ Erst Jetzt senden klicken';
         autoWH = false;
         document.getElementById('wh-auto').checked = false;
@@ -815,18 +957,29 @@ function toggleAutoWH(on) {
 }
 
 function debouncedWH() {
-    if (!autoWH || !getWHMsgIds(fmtDate(state.monday)).length) return;
+    const wk = fmtDate(state.monday);
+    if (!autoWH || !getWHMsgIds(wk).length || isWkLocked(wk)) return;
     clearTimeout(_whDebounce);
     _whDebounce = setTimeout(() => postWH(), 2500);
 }
-async function postWH() {
+
+async function postWH(forceNew = false) {
     const url = getWH();
     if (!url) return;
     const wk = fmtDate(state.monday);
+    if (isWkLocked(wk)) {
+        const st = document.getElementById('wh-st');
+        if (st) st.textContent = '🔒 KW ist gesperrt — in Archiv entsperren';
+        setTimeout(() => {
+            if (st) st.textContent = '';
+        }, 4000);
+        return;
+    }
     const chunks = buildDiscordChunks();
     const st = document.getElementById('wh-st');
     if (st) st.textContent = `⏳ Sende ${chunks.length} Nachrichten…`;
-    const existingIds = getWHMsgIds(wk);
+    // forceNew = ignore existing IDs → creates new archive messages instead of editing
+    const existingIds = forceNew ? [] : getWHMsgIds(wk);
     const newIds = [];
     let allOk = true;
     try {
@@ -871,8 +1024,9 @@ async function postWH() {
             setWHMsgIds(wk, newIds);
             document.getElementById('wh-first-notice').style.display = 'none';
             updateSyncBadge();
+            refreshArchive();
             showSave(`Gespeichert · Discord ✓ (${chunks.length} Nachrichten)`);
-            if (st) st.textContent = `✓ ${chunks.length} Nachrichten gesendet`;
+            if (st) st.textContent = `✓ ${chunks.length} Nachrichten ${forceNew?'neu erstellt':'aktualisiert'}`;
             setTimeout(() => {
                 if (st) st.textContent = '';
             }, 4000);
@@ -886,20 +1040,35 @@ async function postWH() {
 function saveWH() {
     const url = document.getElementById('wh-url').value.trim();
     setWH(url);
-    const hasMsgIds = !!getWHMsgIds(fmtDate(state.monday)).length;
+    const wk = fmtDate(state.monday);
+    const hasMsgIds = !!getWHMsgIds(wk).length;
     document.getElementById('wh-first-notice').style.display = (url && !hasMsgIds) ? 'block' : 'none';
     if (!url) {
         autoWH = false;
         document.getElementById('wh-auto').checked = false;
     }
     updateSyncBadge();
+    refreshArchive();
     const st = document.getElementById('wh-st');
-    st.textContent = url ? '✓ URL gespeichert' : '✓ Deaktiviert';
+    st.textContent = url ? '✓ Dienstplan-Webhook gespeichert' : '✓ Deaktiviert';
+    setTimeout(() => st.textContent = '', 3000);
+}
+
+function saveDataWH() {
+    const url = document.getElementById('wh-data-url').value.trim();
+    setDataWH(url);
+    const st = document.getElementById('sync-st');
+    st.style.color = 'var(--gi)';
+    st.textContent = url ? '✓ Daten-Webhook gespeichert' : '✓ Deaktiviert';
     setTimeout(() => st.textContent = '', 3000);
 }
 
 function testWH() {
     postWH();
+}
+
+function testWHNew() {
+    postWH(true);
 }
 
 // ── DISCORD TEXT ─────────────────────────
@@ -915,6 +1084,76 @@ function setDcFmt(f) {
     genDiscord();
 }
 
+// ── TEXT TABLE ENGINE ─────────────────────────────────────
+// Renders a tablesgenerator.com-style ASCII table, works in
+// both Discord (code block) and WhatsApp (monospace block).
+function textTable(rows, colWidths) {
+    // rows: array of arrays of strings. First row = header.
+    // colWidths: array of column widths (auto-calculated if omitted)
+    if (!colWidths) {
+        colWidths = rows[0].map((_, ci) => Math.max(...rows.map(r => String(r[ci] || '').length)));
+    }
+    const sep = '+' + colWidths.map(w => '-'.repeat(w + 2)).join('+') + '+';
+    const row = cells => ('|' + cells.map((c, i) => ' ' + String(c || '').padEnd(colWidths[i]) + ' ').join('|') + '|');
+    const lines = [];
+    lines.push(sep);
+    rows.forEach((r, i) => {
+        lines.push(row(r));
+        if (i === 0 || i === rows.length - 1) lines.push(sep);
+    });
+    return lines.join('\n');
+}
+
+function shiftStr(s, includeHours = true) {
+    if (!s || s.type === 'free') return '';
+    if (s.type === 'work' && !s.goFil) {
+        const t = `${s.start}-${s.end}`;
+        const h = calcH(s.start, s.end, s.pause);
+        return includeHours && h > 0 ? `${t} (${fmtH(h)})` : t;
+    }
+    if (s.type === 'work' && s.goFil) return `→ ${s.goFil}${s.goTimes==='yes'?' '+s.start+'-'+s.end:''}`;
+    return {
+        vacation: 'Urlaub',
+        bs: 'BS',
+        sick: 'Krank',
+        absent: 'Abw.'
+    } [s.type] || s.type;
+}
+
+function buildDayTextTable(ds, day, ft, employees, shifts) {
+    const dl = DAYS[day.getDay()];
+    const dd = `${day.getDate()}.${day.getMonth()+1}.`;
+    const header = `${dl} ${dd}`;
+    if (ft) return `[${header} — ${ft}]`;
+    const home = employees.filter(e => !e.isGuest);
+    if (!home.length) return `[${header}]\n  – keine Mitarbeiter –`;
+    const rows = [
+        ['Name', 'Zeit']
+    ];
+    home.forEach(e => {
+        const s = (shifts[ds] || {})[e.id];
+        const nm = e.name.split(' ').slice(-1)[0];
+        let zeit = '—';
+        if (!s || s.type === 'free') {
+            zeit = '—';
+        } else if (s.type === 'work' && !s.goFil) {
+            zeit = `${s.start}-${s.end}`;
+        } else if (s.type === 'work' && s.goFil) {
+            zeit = `> ${s.goFil}${s.goTimes==='yes'?' '+s.start+'-'+s.end:''}`;
+        } else {
+            zeit = {
+                vacation: 'Urlaub',
+                bs: 'BS',
+                sick: 'Krank',
+                absent: 'Abw.'
+            } [s.type] || s.type;
+        }
+        if (s && s.note && s.type === 'work' && !s.goFil) zeit += ` [${s.note}]`;
+        rows.push([nm, zeit]);
+    });
+    return `[${header}]\n` + textTable(rows);
+}
+
 function buildDayListBlock(ds, day, ft, employees, shifts, hols) {
     const dl = DAYS[day.getDay()];
     const dd = `${day.getDate()}.${day.getMonth()+1}.`;
@@ -924,20 +1163,20 @@ function buildDayListBlock(ds, day, ft, employees, shifts, hols) {
         return out;
     }
     out += `**${dl} ${dd}**\n`;
-    let any = false;
-    employees.forEach(emp => {
+    const home = employees.filter(e => !e.isGuest);
+    home.forEach(emp => {
         const s = (shifts[ds] || {})[emp.id];
-        if (!s || s.type === 'free') return;
-        any = true;
         const pfx = emp.isGuest ? `← ${emp.guestFrom} ` : '';
         let str = '';
-        if (s.type === 'work') {
+        if (!s || s.type === 'free') {
+            str = '—';
+        } else if (s.type === 'work') {
             if (s.goFil) {
                 str = `→ Filiale ${s.goFil}`;
                 if (s.goTimes === 'yes') str += ` · ${s.start}–${s.end}`;
             } else {
-                const h = calcH(s.start, s.end, s.pause);
-                str = `${s.start}–${s.end}${h>0?' ('+fmtH(h)+')':''}`;
+                str = `${s.start}–${s.end}`;
+                if (s.note) str += ` · _${s.note}_`;
             }
         } else if (s.type === 'vacation') {
             str = '🏖 Urlaub';
@@ -947,12 +1186,9 @@ function buildDayListBlock(ds, day, ft, employees, shifts, hols) {
             sick: '🤒 Krank',
             absent: '◌ Abwesend'
         } [s.type] || s.type;
-        if (s.note) str += ` · _${s.note}_`;
         out += `  •${pfx}**${emp.name}**: ${str}\n`;
     });
-    if (!any) out += `  _– keine Dienste –_\n`;
-    const dtD = dayTotalH(ds);
-    if (dtD > 0) out += `  _∑ ${fmtH(dtD)} Teamstunden_\n`;
+
     return out;
 }
 
@@ -960,40 +1196,8 @@ function buildDayTableBlock(ds, day, ft, employees, shifts) {
     const dl = DAYS[day.getDay()];
     const dd = `${day.getDate()}.${day.getMonth()+1}.`;
     if (ft) return `🎉 **${dl} ${dd} — ${ft}**\n`;
-    const workers = employees.filter(e => {
-        const s = (shifts[ds] || {})[e.id];
-        return s && s.type !== 'free';
-    });
-    if (!workers.length) return `**${dl} ${dd}**\n_– keine Dienste –_\n`;
-    // Discord markdown table
-    let out = `**${dl} ${dd}**\n`;
-    out += `| Mitarbeiter | Zeit | Std |\n`;
-    out += `|:---|:---:|---:|\n`;
-    workers.forEach(e => {
-        const s = (shifts[ds] || {})[e.id];
-        const name = e.name.length > 14 ? e.name.slice(0, 13) + '…' : e.name;
-        let zeit = '—',
-            std = '';
-        if (s.type === 'work' && !s.goFil) {
-            zeit = `${s.start}–${s.end}`;
-            const h = calcH(s.start, s.end, s.pause);
-            if (h > 0) std = fmtH(h);
-        } else if (s.type === 'work' && s.goFil) {
-            zeit = `→ ${s.goFil}`;
-        } else if (s.type === 'vacation') {
-            zeit = '🏖 Urlaub';
-        } else if (s.type === 'bs') {
-            zeit = '🏫 BS';
-        } else if (s.type === 'sick') {
-            zeit = '🤒 Krank';
-        } else if (s.type === 'absent') {
-            zeit = '◌ Abw.';
-        }
-        out += `| ${name} | ${zeit} | ${std} |\n`;
-    });
-    const dtD = dayTotalH(ds);
-    if (dtD > 0) out += `| | **∑ Team** | **${fmtH(dtD)}** |\n`;
-    return out;
+    const tbl = buildDayTextTable(ds, day, ft, employees, shifts);
+    return `\`\`\`\n${tbl}\n\`\`\`\n`;
 }
 
 function buildDiscordChunks() {
@@ -1009,7 +1213,6 @@ function buildDiscordChunks() {
     const dr = `${monday.getDate()}.${monday.getMonth()+1}. – ${end.getDate()}.${end.getMonth()+1}.${monday.getFullYear()}`;
     const header = `📋 **DIENSTPLAN – KW ${kw} | ${dr}**\n**Filiale ${filiale}**\n${'━'.repeat(32)}`;
 
-    // Build day blocks
     const dayBlocks = [];
     for (let i = 0; i < 6; i++) {
         const day = addDays(monday, i);
@@ -1020,7 +1223,6 @@ function buildDiscordChunks() {
             buildDayListBlock(ds, day, ft, employees, shifts, hols));
     }
 
-    // Build totals block
     let totals = `${'━'.repeat(32)}\n**Gesamtstunden:**\n`;
     const rkEmps = employees.filter(e => !e.isGuest && e.type === 'rk');
     employees.filter(e => !e.isGuest && e.type !== 'rk').forEach(e => {
@@ -1053,7 +1255,6 @@ function buildDiscordChunks() {
     }
     totals += `\n_Stand: ${new Date().toLocaleString('de-DE')}_`;
 
-    // Pack into messages ≤1900 chars: header + greedy-merge days + totals
     const MAX = 1900;
     const chunks = [];
     let cur = header;
@@ -1065,7 +1266,6 @@ function buildDiscordChunks() {
         } else cur = candidate;
     });
     if (cur.trim()) chunks.push(cur.trim());
-    // totals always gets its own message
     chunks.push(totals.trim());
     return chunks;
 }
@@ -1073,6 +1273,7 @@ function buildDiscordChunks() {
 function buildDiscordText() {
     return buildDiscordChunks().join('\n\n━━━━━━━━━━━━━━━━\n\n');
 }
+
 
 let _dcChunkIdx = 0;
 let _dcChunksCache = [];
@@ -1126,12 +1327,16 @@ function showDiscord() {
     document.getElementById('wh-fil').textContent = filiale || '–';
     document.getElementById('d-fil-ch').textContent = filiale || 'XXXX';
     document.getElementById('wh-url').value = getWH();
+    document.getElementById('wh-data-url').value = localStorage.getItem(WH_DATA_KEY + '-' + filiale) || '';
     document.getElementById('wh-auto').checked = autoWH;
     document.getElementById('wh-st').textContent = '';
-    const hasMsgIds = !!getWHMsgIds(fmtDate(state.monday)).length;
-    document.getElementById('wh-first-notice').style.display = (getWH() && !hasMsgIds) ? 'block' : 'none';
+    document.getElementById('sync-st').textContent = '';
+    const wk = fmtDate(state.monday);
+    const hasMsgIds = !!getWHMsgIds(wk).length;
+    document.getElementById('wh-first-notice').style.display = (getWH() && !hasMsgIds && !isWkLocked(wk)) ? 'block' : 'none';
     setDcFmt(dcFmt);
     updateSyncBadge();
+    refreshArchive();
 }
 
 function closeDiscord() {
@@ -1139,7 +1344,7 @@ function closeDiscord() {
 }
 
 // ── WHATSAPP ─────────────────────────────
-let waFmt = 'list'; // 'list' | 'table'
+let waFmt = 'table';
 
 function setWAFmt(f) {
     waFmt = f;
@@ -1159,49 +1364,12 @@ function padL(s, n) {
 }
 
 function buildWADayTable(ds, day, ft, employees, shifts) {
+    // Use the same unified text table engine, wrapped in WA code block
     const dl = DAYS[day.getDay()];
     const dd = `${day.getDate()}.${day.getMonth()+1}.`;
     if (ft) return `🎉 *${dl} ${dd} — ${ft}*\n`;
-    const workers = employees.filter(e => {
-        const s = (shifts[ds] || {})[e.id];
-        return s && s.type !== 'free';
-    });
-    if (!workers.length) return `*${dl} ${dd}*\n_– keine Dienste –_\n`;
-    let out = `*${dl} ${dd}*\n\`\`\`\n`;
-    const NW = 13,
-        ZW = 11,
-        SW = 8;
-    out += padR('Name', NW) + ' ' + padR('Zeit', ZW) + ' ' + padL('Std', SW) + '\n';
-    out += '-'.repeat(NW + ZW + SW + 2) + '\n';
-    workers.forEach(e => {
-        const s = (shifts[ds] || {})[e.id];
-        const nm = padR(e.name.split(' ').pop(), NW);
-        let zeit = '—',
-            std = '';
-        if (s.type === 'work' && !s.goFil) {
-            zeit = `${s.start}–${s.end}`;
-            const h = calcH(s.start, s.end, s.pause);
-            if (h > 0) std = fmtH(h);
-        } else if (s.type === 'work' && s.goFil) {
-            zeit = `→ ${s.goFil}`;
-        } else if (s.type === 'vacation') {
-            zeit = 'Urlaub';
-        } else if (s.type === 'bs') {
-            zeit = 'BS';
-        } else if (s.type === 'sick') {
-            zeit = 'Krank';
-        } else if (s.type === 'absent') {
-            zeit = 'Abw.';
-        }
-        out += nm + ' ' + padR(zeit, ZW) + ' ' + padL(std, SW) + '\n';
-    });
-    const dtD = dayTotalH(ds);
-    if (dtD > 0) {
-        out += '-'.repeat(NW + ZW + SW + 2) + '\n';
-        out += padR('∑ Team', NW) + ' ' + padR('', ZW) + ' ' + padL(fmtH(dtD), SW) + '\n';
-    }
-    out += '```\n';
-    return out;
+    const tbl = buildDayTextTable(ds, day, ft, employees, shifts);
+    return `\`\`\`\n${tbl}\n\`\`\`\n`;
 }
 
 function empTag(e) {
@@ -1210,8 +1378,8 @@ function empTag(e) {
 }
 
 function fmtWAShift(sh, e) {
-    if (!sh || sh.type === 'free') return null;
     const tag = empTag(e);
+    if (!sh || sh.type === 'free') return `${tag}: —`;
     if (sh.type === 'sick') return `${tag}: 🤒 _krank_`;
     if (sh.type === 'vacation') return `${tag}: 🏖 _Urlaub_`;
     if (sh.type === 'bs') return `${tag}: 🏫 _Berufsschule_`;
@@ -1221,13 +1389,11 @@ function fmtWAShift(sh, e) {
             const t = sh.goTimes === 'yes' ? ` ${sh.start}–${sh.end}` : '';
             return `${tag}: → Filiale ${sh.goFil}${t}`;
         }
-        const h = calcH(sh.start, sh.end, sh.pause);
         let l = `${tag}: ${sh.start}–${sh.end}`;
-        if (h > 0) l += ` (${fmtH(h)})`;
         if (sh.note) l += ` – _${sh.note}_`;
         return l;
     }
-    return null;
+    return `${tag}: —`;
 }
 
 function buildWAWeek() {
@@ -1257,7 +1423,7 @@ function buildWAWeek() {
             }
             out += `*${dl} ${dd}*\n`;
             let any = false;
-            employees.forEach(e => {
+            employees.filter(e => !e.isGuest).forEach(e => {
                 const sh = (shifts[ds] || {})[e.id];
                 const l = fmtWAShift(sh, e);
                 if (l) {
@@ -1265,8 +1431,7 @@ function buildWAWeek() {
                     any = true;
                 }
             });
-            const dtD = dayTotalH(ds);
-            if (dtD > 0) out += `  _∑ ${fmtH(dtD)} Teamstunden_\n`;
+
             if (!any) out += `  _– keine Dienste –_\n`;
             out += '\n';
         }
@@ -1316,23 +1481,22 @@ function buildWADay(idx) {
         out += `🎉 *${ft}*\n_Feiertag_\n\n_Stand: ${new Date().toLocaleString('de-DE')}_`;
         return out;
     }
-    const sorted = [...employees].sort((a, b) => {
+    // Sort: working staff by start time first, then everyone else
+    const sorted = [...employees.filter(e => !e.isGuest)].sort((a, b) => {
         const sa = (shifts[ds] || {})[a.id];
         const sb = (shifts[ds] || {})[b.id];
-        if (!sa || sa.type !== 'work') return 1;
-        if (!sb || sb.type !== 'work') return -1;
-        return (sa.start || '').localeCompare(sb.start || '');
+        const aWork = sa && sa.type === 'work' && !sa.goFil;
+        const bWork = sb && sb.type === 'work' && !sb.goFil;
+        if (aWork && !bWork) return -1;
+        if (!aWork && bWork) return 1;
+        if (aWork && bWork) return (sa.start || '').localeCompare(sb.start || '');
+        return 0;
     });
-    let any = false;
     sorted.forEach(e => {
         const sh = (shifts[ds] || {})[e.id];
         const l = fmtWAShift(sh, e);
-        if (l) {
-            out += `${l}\n`;
-            any = true;
-        }
+        if (l) out += `${l}\n`;
     });
-    if (!any) out += `_– keine Dienste –_\n`;
     out += `\n_Stand: ${new Date().toLocaleString('de-DE')}_`;
     return out;
 }
@@ -1348,7 +1512,6 @@ function buildWAPersonal(empId) {
     const e = employees.find(x => x.id === empId);
     if (!e) return '';
     const kw = getKW(monday);
-    let tot = 0;
     let out = `*📋 Deine Schichten – KW ${kw}*\n*${e.name} · Filiale ${filiale}*\n${'─'.repeat(22)}\n\n`;
     for (let i = 0; i < 6; i++) {
         const day = addDays(monday, i);
@@ -1362,7 +1525,7 @@ function buildWAPersonal(empId) {
             continue;
         }
         if (!sh || sh.type === 'free') {
-            out += `${dl} ${dd}: frei\n`;
+            out += `${dl} ${dd}: —\n`;
             continue;
         }
         if (sh.type === 'sick') {
@@ -1382,34 +1545,24 @@ function buildWAPersonal(empId) {
                 const t = sh.goTimes === 'yes' ? ` ${sh.start}–${sh.end}` : '';
                 out += `${dl} ${dd}: → Filiale ${sh.goFil}${t}\n`;
             } else {
-                const h = calcH(sh.start, sh.end, sh.pause);
-                tot += h;
                 let l = `*${dl} ${dd}: ${sh.start}–${sh.end}*`;
-                if (h > 0) l += ` (${fmtH(h)})`;
                 if (sh.pause > 0) l += ` P:${sh.pause}Min.`;
                 if (sh.note) l += ` – _${sh.note}_`;
                 out += l + '\n';
             }
         }
     }
-    out += `\n${'─'.repeat(22)}\n*Gesamt: ${fmtH(tot)||'0 Std'}*`;
-    if (e.weeklyTarget) {
-        const tgt = parseFloat(e.weeklyTarget);
-        const dv = Math.round((tot - tgt) * 100) / 100;
-        const sign = dv > 0 ? '+' : '';
-        out += ` (Soll ${String(tgt).replace('.',',')} Std, ${sign}${String(dv).replace('.',',')} Std)`;
-    }
-    out += `\n\n_Stand: ${new Date().toLocaleString('de-DE')}_`;
+    out += `\n_Stand: ${new Date().toLocaleString('de-DE')}_`;
     return out;
 }
 
 function showWA() {
-    waFmt = 'list';
+    waFmt = 'table';
     waTab = 'week';
     populateWASelects();
     genWA();
     switchWATab('week');
-    setWAFmt('list');
+    setWAFmt('table');
     document.getElementById('wa-ov').style.display = 'flex';
 }
 
@@ -1474,12 +1627,589 @@ function esc(s) {
     return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// ── VACATION ─────────────────────────────
+let vacYear = new Date().getFullYear();
+
+function getVacData() {
+    try {
+        return JSON.parse(localStorage.getItem(VAC_KEY + '-' + filiale)) || {};
+    } catch {
+        return {};
+    }
+}
+
+function saveVacData(d) {
+    localStorage.setItem(VAC_KEY + '-' + filiale, JSON.stringify(d));
+}
+
+function getKWsInYear(y) {
+    // Count ISO weeks in year
+    const lastDay = new Date(y, 11, 31);
+    const kw = getKW(lastDay);
+    return kw === 1 ? 52 : kw;
+}
+
+function kwToMonday(kw, y) {
+    // Get Monday of ISO week kw in year y
+    const jan4 = new Date(y, 0, 4);
+    const jan4Day = jan4.getDay() || 7;
+    const weekStart = new Date(jan4);
+    weekStart.setDate(jan4.getDate() - (jan4Day - 1) + (kw - 1) * 7);
+    return weekStart;
+}
+
+function showVac() {
+    document.getElementById('vac-ov').style.display = 'flex';
+    document.getElementById('vac-year-lbl').textContent = vacYear;
+    renderVac();
+}
+
+function closeVac() {
+    document.getElementById('vac-ov').style.display = 'none';
+}
+
+function changeVacYear(d) {
+    vacYear += d;
+    document.getElementById('vac-year-lbl').textContent = vacYear;
+    renderVac();
+}
+
+function toggleVacCell(empId, kw) {
+    const data = getVacData();
+    if (!data[empId]) data[empId] = [];
+    const key = vacYear + '-' + kw;
+    const idx = data[empId].indexOf(key);
+    if (idx >= 0) data[empId].splice(idx, 1);
+    else data[empId].push(key);
+    saveVacData(data);
+    renderVac();
+}
+
+function renderVac() {
+    const data = getVacData();
+    const home = state.employees.filter(e => !e.isGuest);
+    const totalKWs = getKWsInYear(vacYear);
+    const curKW = getKW(new Date());
+    const curYear = new Date().getFullYear();
+    const MAX_WEEKS = 6;
+
+    // Compute used weeks per employee this year
+    const used = {};
+    home.forEach(e => {
+        const marked = (data[e.id] || []).filter(k => k.startsWith(vacYear + '-'));
+        used[e.id] = marked.length;
+    });
+
+    // Compute overlap per KW (how many employees on vacation that week)
+    const overlap = {};
+    for (let kw = 1; kw <= totalKWs; kw++) {
+        const key = vacYear + '-' + kw;
+        const cnt = home.filter(e => (data[e.id] || []).includes(key)).length;
+        overlap[kw] = cnt;
+    }
+
+    // Summary chips
+    const sumEl = document.getElementById('vac-summary');
+    sumEl.innerHTML = home.map(e => {
+        const u = used[e.id] || 0;
+        const over = u > MAX_WEEKS;
+        return `<span class="vac-chip ${over?'over':u===MAX_WEEKS?'ok':''}">${e.name.split(' ').pop()}: ${u}/${MAX_WEEKS} Wo.</span>`;
+    }).join('');
+
+    // Table
+    let t = `<thead><tr><th class="kw-th">KW</th>`;
+    home.forEach(e => t += `<th>${esc(e.name.split(' ').pop())}</th>`);
+    t += `</tr></thead><tbody>`;
+    for (let kw = 1; kw <= totalKWs; kw++) {
+        const isCur = kw === curKW && vacYear === curYear;
+        const mon = kwToMonday(kw, vacYear);
+        const monStr = `${mon.getDate()}.${mon.getMonth()+1}.`;
+        t += `<tr${isCur?' class="cur-kw"':''}>`;
+        t += `<td class="kw-num">KW ${kw}<br><span style="font-size:9px;color:var(--text3)">${monStr}</span></td>`;
+        home.forEach(e => {
+            const key = vacYear + '-' + kw;
+            const marked = (data[e.id] || []).includes(key);
+            const isOverlap = marked && overlap[kw] > 1;
+            const cls = isOverlap ? 'vc overlap' : marked ? 'vc marked' : 'vc';
+            t += `<td><button class="${cls}" onclick="toggleVacCell('${e.id}',${kw})">${marked?(isOverlap?'⚠':'✓'):''}</button></td>`;
+        });
+        t += `</tr>`;
+    }
+    t += `</tbody>`;
+    document.getElementById('vac-table').innerHTML = t;
+    // Scroll to current KW
+    if (vacYear === curYear) {
+        setTimeout(() => {
+            const rows = document.querySelectorAll('#vac-table tbody tr');
+            if (rows[curKW - 1]) rows[curKW - 1].scrollIntoView({
+                block: 'center',
+                behavior: 'smooth'
+            });
+        }, 50);
+    }
+}
+
+// ── CLOUD DATA SYNC ──────────────────────
+const DATA_PREFIX = '🗄️ DIENSTPLAN-DATEN';
+const SHIFTS_PREFIX = '🗄️ SCHICHTEN-DATEN';
+const MAX_MSG = 1900;
+
+// Storage: arrays of message IDs for multi-chunk payloads
+function getDataMsgIds() {
+    try {
+        return JSON.parse(localStorage.getItem(WH_DATA_ID + '-' + filiale)) || [];
+    } catch {
+        return [];
+    }
+}
+
+function setDataMsgIds(ids) {
+    localStorage.setItem(WH_DATA_ID + '-' + filiale, JSON.stringify(ids));
+}
+// legacy single-ID compat
+function getDataMsgId() {
+    const ids = getDataMsgIds();
+    return ids[0] || '';
+}
+
+function setDataMsgId(id) {
+    setDataMsgIds(id ? [id] : []);
+}
+
+function getShiftsMsgIds() {
+    try {
+        return JSON.parse(localStorage.getItem(WH_SHIFTS_ID + '-' + filiale)) || [];
+    } catch {
+        return [];
+    }
+}
+
+function setShiftsMsgIds(ids) {
+    localStorage.setItem(WH_SHIFTS_ID + '-' + filiale, JSON.stringify(ids));
+}
+
+// ── Encode / decode helpers ─────────────────────────────
+function encodeChunks(prefix, obj) {
+    // Split a JSON object into ≤MAX_MSG messages.
+    // Strategy: try full payload first; if too big, split arrays by halving recursively.
+    const ts = new Date().toISOString();
+
+    function header(idx, total) {
+        return `${prefix} · Filiale ${filiale} [${idx+1}/${total}]\n`;
+    }
+
+    function pack(data) {
+        return JSON.stringify(data);
+    }
+
+    const full = `${header(0,1)}\`\`\`json\n${pack(obj)}\n\`\`\``;
+    if (full.length <= MAX_MSG) return [full];
+
+    // Split by chunking the largest array inside the object
+    const chunks = [];
+    // For employees/vacations: split employees array
+    if (obj.employees && Array.isArray(obj.employees)) {
+        const emps = obj.employees;
+        const base = {
+            ...obj,
+            employees: []
+        };
+        // first message: metadata + first batch of employees
+        let batch = [];
+        let batchChunks = [];
+        for (const emp of emps) {
+            batch.push(emp);
+            const test = `${header(0,99)}\`\`\`json\n${pack({...base,employees:batch,_chunk:'emp'})}\n\`\`\``;
+            if (test.length > MAX_MSG) {
+                if (batch.length > 1) {
+                    batchChunks.push([...batch.slice(0, -1)]);
+                    batch = [emp];
+                } else {
+                    batchChunks.push([...batch]);
+                    batch = [];
+                }
+            }
+        }
+        if (batch.length) batchChunks.push(batch);
+        const total = batchChunks.length;
+        batchChunks.forEach((b, i) => {
+            const isFirst = i === 0;
+            const payload = isFirst ? {
+                ...base,
+                employees: b,
+                _chunk: 'emp',
+                _total: total
+            } : {
+                _chunk: 'emp',
+                _idx: i,
+                _total: total,
+                filiale,
+                ts,
+                employees: b
+            };
+            chunks.push(`${header(i,total)}\`\`\`json\n${pack(payload)}\n\`\`\``);
+        });
+        return chunks;
+    }
+    // For shifts: split by date keys
+    if (obj.shifts) {
+        const keys = Object.keys(obj.shifts);
+        const base = {
+            ...obj,
+            shifts: {}
+        };
+        let batch = {};
+        let batchChunks = [];
+        for (const k of keys) {
+            batch[k] = obj.shifts[k];
+            const test = `${header(0,99)}\`\`\`json\n${pack({...base,shifts:batch,_chunk:'shifts'})}\n\`\`\``;
+            if (test.length > MAX_MSG) {
+                const prev = {
+                    ...batch
+                };
+                delete prev[k];
+                if (Object.keys(prev).length) {
+                    batchChunks.push(prev);
+                    batch = {
+                        [k]: obj.shifts[k]
+                    };
+                } else {
+                    batchChunks.push({
+                        [k]: obj.shifts[k]
+                    });
+                    batch = {};
+                }
+            }
+        }
+        if (Object.keys(batch).length) batchChunks.push(batch);
+        const total = batchChunks.length;
+        batchChunks.forEach((b, i) => {
+            const payload = i === 0 ? {
+                ...base,
+                shifts: b,
+                _chunk: 'shifts',
+                _total: total
+            } : {
+                _chunk: 'shifts',
+                _idx: i,
+                _total: total,
+                filiale,
+                ts,
+                shifts: b
+            };
+            chunks.push(`${header(i,total)}\`\`\`json\n${pack(payload)}\n\`\`\``);
+        });
+        return chunks;
+    }
+    // fallback: truncate (shouldn't happen)
+    return [full.slice(0, MAX_MSG)];
+}
+
+function decodeMsg(content) {
+    const tag = '```json\n';
+    const tagEnd = '\n```';
+    const start = content.indexOf(tag);
+    const end = content.lastIndexOf(tagEnd);
+    if (start < 0 || end < 0) return null;
+    try {
+        return JSON.parse(content.slice(start + tag.length, end));
+    } catch {
+        return null;
+    }
+}
+
+// Reassemble multi-chunk payload from array of parsed JSON objects
+function reassembleChunks(parts) {
+    if (!parts.length) return null;
+    const base = parts[0];
+    for (let i = 1; i < parts.length; i++) {
+        const p = parts[i];
+        if (p._chunk === 'emp' && p.employees) base.employees = [...(base.employees || []), ...p.employees];
+        if (p._chunk === 'shifts' && p.shifts) Object.assign(base.shifts || (base.shifts = {}), p.shifts);
+    }
+    return base;
+}
+
+async function whPost(url, text, existingId) {
+    let resp;
+    if (existingId) {
+        resp = await fetch(`${url}/messages/${existingId}?wait=true`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                content: text
+            })
+        });
+        if (!resp.ok) resp = null;
+    }
+    if (!resp || !resp.ok) {
+        resp = await fetch(`${url}?wait=true`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                content: text
+            })
+        });
+    }
+    if (resp && resp.ok) return await resp.json();
+    return null;
+}
+
+async function whGet(url, msgId) {
+    if (!msgId) return null;
+    try {
+        const resp = await fetch(`${url}/messages/${msgId}`, {
+            method: 'GET'
+        });
+        if (!resp.ok) return null;
+        return await resp.json();
+    } catch {
+        return null;
+    }
+}
+
+// Post an array of chunks, patching existing message IDs or creating new ones
+async function postChunks(url, chunks, existingIds, delayMs = 600) {
+    const newIds = [];
+    for (let i = 0; i < chunks.length; i++) {
+        const msg = await whPost(url, chunks[i], existingIds[i] || '');
+        if (!msg) return null;
+        newIds.push(msg.id);
+        if (i < chunks.length - 1) await new Promise(r => setTimeout(r, delayMs));
+    }
+    // If we posted fewer chunks than before (data shrank), the old extra messages
+    // are now orphaned — harmless, just leave them.
+    return newIds;
+}
+
+// Fetch and decode all chunks for a stored ID list
+async function fetchChunks(url, ids) {
+    const parts = [];
+    for (const id of ids) {
+        const msg = await whGet(url, id);
+        if (!msg) continue;
+        const p = decodeMsg(msg.content);
+        if (p) parts.push(p);
+    }
+    return parts;
+}
+
+async function pushDataToDiscord() {
+    const url = getDataWH();
+    if (!url) {
+        setSyncSt('⚠ Erst Webhook-URL eingeben und speichern.', 'var(--go)');
+        return;
+    }
+    setSyncSt('⏳ Speichere in Discord…', 'var(--text2)');
+    try {
+        // 1. Employees + vacations
+        const dPayload = {
+            v: 4,
+            ts: new Date().toISOString(),
+            filiale,
+            employees: state.employees,
+            vacations: (() => {
+                try {
+                    return JSON.parse(localStorage.getItem(VAC_KEY + '-' + filiale) || '{}')
+                } catch {
+                    return {}
+                }
+            })()
+        };
+        const dChunks = encodeChunks(DATA_PREFIX, dPayload);
+        setSyncSt(`⏳ Mitarbeiter: ${dChunks.length} Nachrichten…`, 'var(--text2)');
+        const dIds = await postChunks(url, dChunks, getDataMsgIds());
+        if (!dIds) {
+            setSyncSt('✕ Fehler beim Speichern der Mitarbeiterdaten — Webhook-URL prüfen.', 'var(--red)');
+            return;
+        }
+        setDataMsgIds(dIds);
+
+        // 2. Shifts (rolling 12+4 week window)
+        const now = getMondayOfWeek(new Date());
+        const from = addDays(now, -84);
+        const to = addDays(now, 35);
+        const subShifts = {};
+        Object.keys(state.shifts).forEach(ds => {
+            const d = new Date(ds);
+            if (d >= from && d <= to && Object.keys(state.shifts[ds] || {}).length) subShifts[ds] = state.shifts[ds];
+        });
+        const sPayload = {
+            v: 4,
+            ts: new Date().toISOString(),
+            filiale,
+            shifts: subShifts
+        };
+        const sChunks = encodeChunks(SHIFTS_PREFIX, sPayload);
+        setSyncSt(`⏳ Schichten: ${sChunks.length} Nachrichten…`, 'var(--text2)');
+        const sIds = await postChunks(url, sChunks, getShiftsMsgIds());
+        if (sIds) setShiftsMsgIds(sIds);
+
+        const total = dIds.length + (sIds ? sIds.length : 0);
+        setSyncSt(`✓ Gespeichert in Discord — ${total} Nachrichten (${new Date().toLocaleTimeString('de-DE')})`, `var(--gi)`);
+        showSave('In Discord gespeichert');
+        updateSyncBadge();
+    } catch (e) {
+        setSyncSt('✕ Netzwerkfehler: ' + e.message, 'var(--red)');
+        console.error(e);
+    }
+}
+
+async function pullDataFromDiscord() {
+    const url = getDataWH();
+    if (!url) {
+        setSyncSt('⚠ Erst Webhook-URL eingeben und speichern.', 'var(--go)');
+        return;
+    }
+    setSyncSt('⏳ Lade von Discord…', 'var(--text2)');
+    try {
+        const dataIds = getDataMsgIds();
+        if (!dataIds.length) {
+            setSyncSt('ℹ Noch keine Daten auf Discord. Erst "In Discord speichern" ausführen.', 'var(--text2)');
+            return;
+        }
+        const dParts = await fetchChunks(url, dataIds);
+        if (!dParts.length) {
+            setSyncSt('✕ Nachrichten nicht gefunden — möglicherweise gelöscht.', 'var(--red)');
+            return;
+        }
+        const discordData = reassembleChunks(dParts);
+        if (!discordData || discordData.filiale !== filiale) {
+            setSyncSt('✕ Daten gehören zu einer anderen Filiale oder sind beschädigt.', 'var(--red)');
+            return;
+        }
+
+        const shiftIds = getShiftsMsgIds();
+        let discordShifts = null;
+        if (shiftIds.length) {
+            const sParts = await fetchChunks(url, shiftIds);
+            if (sParts.length) {
+                const sr = reassembleChunks(sParts);
+                if (sr) discordShifts = sr.shifts || {};
+            }
+        }
+        if (discordShifts) discordData._shifts = discordShifts;
+
+        // Check for conflicts
+        const localTs = new Date(JSON.parse(localStorage.getItem(DATA_KEY + '-' + filiale) || '{}').ts || 0);
+        const discordTs = new Date(discordData.ts || 0);
+        const localEmpCount = state.employees.length;
+        const discordEmpCount = (discordData.employees || []).length;
+        const hasLocalData = state.employees.length > 0 || Object.keys(state.shifts).length > 0;
+        const isConflict = hasLocalData && (
+            localEmpCount !== discordEmpCount ||
+            JSON.stringify(state.employees.map(e => e.id).sort()) !==
+            JSON.stringify((discordData.employees || []).map(e => e.id).sort())
+        );
+
+        if (isConflict) {
+            _pendingDiscordData = discordData;
+            showConflictModal(localTs, discordTs, localEmpCount, discordEmpCount, discordShifts);
+            setSyncSt('ℹ Konflikt erkannt — bitte im Dialog entscheiden.', 'var(--go)');
+        } else {
+            applyDiscordData(discordData);
+            setSyncSt(`✓ Daten geladen von Discord (${discordTs.toLocaleString('de-DE')})`, `var(--gi)`);
+        }
+    } catch (e) {
+        setSyncSt('✕ Netzwerkfehler: ' + e.message, 'var(--red)');
+        console.error(e);
+    }
+}
+
+let _pendingDiscordData = null;
+
+function showConflictModal(localTs, discordTs, localEmpCount, discordEmpCount, discordShifts) {
+    const localNewer = localTs > discordTs;
+    const dNewer = discordTs > localTs;
+    document.getElementById('conflict-desc').textContent =
+        `Lokale Daten und Discord-Daten unterscheiden sich. Wähle welche Version du verwenden möchtest.`;
+    const localDetail = `${localEmpCount} Mitarbeiter\n${Object.keys(state.shifts).length} Schicht-Tage\nStand: ${localTs.toLocaleString('de-DE')||'unbekannt'}`;
+    const discordDetail = `${discordEmpCount} Mitarbeiter\n${Object.keys(discordShifts||{}).length} Schicht-Tage\nStand: ${new Date(_pendingDiscordData.ts).toLocaleString('de-DE')}`;
+    document.getElementById('cf-local-detail').textContent = localDetail;
+    document.getElementById('cf-discord-detail').textContent = discordDetail;
+    document.getElementById('cf-local-lbl').textContent = localNewer ? '💻 Lokal (neuer)' : '💻 Lokal';
+    document.getElementById('cf-discord-lbl').textContent = dNewer ? '☁ Discord (neuer)' : '☁ Discord';
+    document.getElementById('cf-local').classList.toggle('newer', localNewer);
+    document.getElementById('cf-discord').classList.toggle('newer', dNewer);
+    document.getElementById('cf-merge-hint').textContent =
+        'Zusammenführen: Mitarbeiter aus beiden Listen kombiniert. Schichten: die neuere Version gewinnt.';
+    document.getElementById('conflict-modal').style.display = 'flex';
+}
+
+function resolveConflict(choice) {
+    document.getElementById('conflict-modal').style.display = 'none';
+    if (!_pendingDiscordData) return;
+    if (choice === 'discord') {
+        applyDiscordData(_pendingDiscordData);
+        setSyncSt('✓ Discord-Daten übernommen.', 'var(--gi)');
+    } else if (choice === 'local') {
+        setSyncSt('✓ Lokale Daten behalten.', 'var(--text2)');
+    } else if (choice === 'merge') {
+        // Merge: combine employee lists, keep local shifts but add discord shifts for dates not in local
+        const discordEmps = _pendingDiscordData.employees || [];
+        const localIds = new Set(state.employees.map(e => e.id));
+        const merged = [...state.employees];
+        discordEmps.forEach(e => {
+            if (!localIds.has(e.id)) merged.push(e);
+        });
+        state.employees = merged;
+        if (_pendingDiscordData._shifts) {
+            Object.keys(_pendingDiscordData._shifts).forEach(ds => {
+                if (!state.shifts[ds] || Object.keys(state.shifts[ds]).length === 0) {
+                    state.shifts[ds] = _pendingDiscordData._shifts[ds];
+                }
+            });
+        }
+        if (_pendingDiscordData.vacations) {
+            const vd = getVacData();
+            const dv = _pendingDiscordData.vacations;
+            Object.keys(dv).forEach(id => {
+                if (!vd[id]) vd[id] = dv[id];
+                else {
+                    const merged = [...new Set([...vd[id], ...dv[id]])];
+                    vd[id] = merged;
+                }
+            });
+            saveVacData(vd);
+        }
+        saveData();
+        render();
+        setSyncSt(`✓ Zusammengeführt: ${state.employees.length} Mitarbeiter.`, 'var(--gi)');
+    }
+    _pendingDiscordData = null;
+}
+
+function applyDiscordData(data) {
+    if (data.employees) state.employees = data.employees;
+    if (data._shifts) {
+        Object.assign(state.shifts, data._shifts);
+    }
+    if (data.vacations) saveVacData(data.vacations);
+    saveData();
+    render();
+    renderEmpList();
+}
+
+function setSyncSt(msg, color) {
+    const el = document.getElementById('sync-st');
+    if (!el) return;
+    el.style.color = color || 'var(--text2)';
+    el.textContent = msg;
+}
+
 // backdrop close
 ['shift-modal', 'edit-emp-modal', 'fil-modal'].forEach(id => document.getElementById(id).addEventListener('click', function(e) {
     if (e.target === this) this.style.display = 'none';
 }));
-['mgmt-ov', 'discord-ov', 'wa-ov'].forEach(id => document.getElementById(id).addEventListener('click', function(e) {
+['mgmt-ov', 'discord-ov', 'wa-ov', 'vac-ov'].forEach(id => document.getElementById(id).addEventListener('click', function(e) {
     if (e.target === this) this.style.display = 'none';
 }));
+document.getElementById('conflict-modal').addEventListener('click', function(e) {
+    if (e.target === this) this.style.display = 'none';
+});
 
 init();
