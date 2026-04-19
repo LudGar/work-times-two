@@ -7,6 +7,7 @@ const WH_DATA_KEY = 'dp-wh-data';
 const WH_MSG_KEY = 'dp-whmsg';
 const WH_LOCK_KEY = 'dp-whlocked';
 const WH_DATA_ID = 'dp-wh-dataid';
+const WH_REG_ID = 'dp-wh-regid'; // registry message ID for data webhook
 const WH_SHIFTS_ID = 'dp-wh-shiftsid';
 const VAC_KEY = 'dp-vac';
 const DAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -71,7 +72,7 @@ function doSetup() {
 }
 
 function startApp() {
-    document.getElementById('main-app').style.display = 'block';
+    document.getElementById('main-app').style.display = 'flex';
     document.getElementById('fil-display').textContent = filiale;
     document.getElementById('mgmt-fil').textContent = filiale;
     document.getElementById('wh-fil').textContent = filiale;
@@ -322,7 +323,7 @@ function render() {
     const hasG = guests.length > 0;
 
     // HEAD
-    let th = `<tr><th class="day-th day-col"><div class="day-cell" style="min-height:50px"><div style="font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px">Tag</div></div></th>`;
+    let th = `<tr><th class="day-th day-col"><div class="day-cell"><div style="font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px">Tag</div></div></th>`;
     home.forEach(e => {
         const sollLbl = e.weeklyTarget ? `<div style="font-size:9px;color:var(--text3);margin-top:2px">Soll: ${String(e.weeklyTarget).replace('.',',')} Std/Wo</div>` : '';
         th += `<th class="emp-th"><div class="emp-hdr"><div class="emp-name" style="color:${COL[e.col]||'var(--text)'}">${esc(e.name)}</div><div class="emp-role">${esc(e.role)}</div><div class="emp-badges"><span class="badge ${TYPE_B[e.type]||'badge-gfb'}">${TYPE_L[e.type]||e.type}</span></div>${sollLbl}</div></th>`;
@@ -1038,8 +1039,12 @@ async function postWH(forceNew = false) {
 }
 
 function saveWH() {
-    const url = document.getElementById('wh-url').value.trim();
+    const raw = document.getElementById('wh-url').value.trim();
+    const {
+        url
+    } = parseSyncString(raw);
     setWH(url);
+    document.getElementById('wh-url').value = url; // strip any accidental suffix
     const wk = fmtDate(state.monday);
     const hasMsgIds = !!getWHMsgIds(wk).length;
     document.getElementById('wh-first-notice').style.display = (url && !hasMsgIds) ? 'block' : 'none';
@@ -1050,17 +1055,75 @@ function saveWH() {
     updateSyncBadge();
     refreshArchive();
     const st = document.getElementById('wh-st');
-    st.textContent = url ? '✓ Dienstplan-Webhook gespeichert' : '✓ Deaktiviert';
+    st.textContent = url ? '✓ Gespeichert' : '✓ Deaktiviert';
     setTimeout(() => st.textContent = '', 3000);
 }
 
 function saveDataWH() {
-    const url = document.getElementById('wh-data-url').value.trim();
+    const raw = document.getElementById('wh-data-url').value.trim();
+    const {
+        url,
+        regId
+    } = parseSyncString(raw);
     setDataWH(url);
-    const st = document.getElementById('sync-st');
-    st.style.color = 'var(--gi)';
-    st.textContent = url ? '✓ Daten-Webhook gespeichert' : '✓ Deaktiviert';
-    setTimeout(() => st.textContent = '', 3000);
+    setSyncSt('⏳ Überprüfe Discord…', 'var(--text2)');
+    if (!url) {
+        setSyncSt('✓ Deaktiviert', 'var(--text2)');
+        return;
+    }
+    if (regId) {
+        // New device — has registry ID baked into the sync string → fetch it
+        localStorage.setItem(WH_REG_ID + '-' + filiale, regId);
+        setSyncSt('⏳ Lade Nachrichten-Index…', 'var(--text2)');
+        fetchRegistry(url, regId).then(reg => {
+            if (!reg) {
+                setSyncSt('✕ Index-Nachricht nicht gefunden. Sync-String prüfen.', 'var(--red)');
+                return;
+            }
+            setDataMsgIds(reg.dataIds || []);
+            setShiftsMsgIds(reg.shiftsIds || []);
+            updateSyncString();
+            setSyncSt('⏳ Lade Daten von Discord…', 'var(--text2)');
+            pullDataFromDiscord();
+        });
+    } else {
+        // Same device — check if we already have a registry
+        const existingReg = localStorage.getItem(WH_REG_ID + '-' + filiale);
+        if (existingReg) {
+            updateSyncString();
+            setSyncSt('✓ URL gespeichert. Sync-String aktualisiert.', 'var(--gi)');
+        } else {
+            setSyncSt('ℹ URL gespeichert. Noch keine Daten gesichert — klicke 💾 Daten sichern.', 'var(--text2)');
+        }
+    }
+}
+
+// Parse a raw input that might be "url|||regId" or just "url"
+function parseSyncString(raw) {
+    const SEP = '|||';
+    const idx = raw.indexOf(SEP);
+    if (idx >= 0) return {
+        url: raw.slice(0, idx).trim(),
+        regId: raw.slice(idx + SEP.length).trim()
+    };
+    return {
+        url: raw.trim(),
+        regId: ''
+    };
+}
+
+// Show the sync string (url|||regId) in the data URL field
+function updateSyncString() {
+    const url = localStorage.getItem(WH_DATA_KEY + '-' + filiale) || '';
+    const regId = localStorage.getItem(WH_REG_ID + '-' + filiale) || '';
+    const el = document.getElementById('wh-data-url');
+    if (el && url) el.value = regId ? `${url}|||${regId}` : url;
+}
+
+async function fetchRegistry(url, regId) {
+    const msg = await whGet(url, regId);
+    if (!msg) return null;
+    return decodeMsg(msg.content);
 }
 
 function testWH() {
@@ -1327,7 +1390,7 @@ function showDiscord() {
     document.getElementById('wh-fil').textContent = filiale || '–';
     document.getElementById('d-fil-ch').textContent = filiale || 'XXXX';
     document.getElementById('wh-url').value = getWH();
-    document.getElementById('wh-data-url').value = localStorage.getItem(WH_DATA_KEY + '-' + filiale) || '';
+    updateSyncString(); // show url|||regId if available, else just url
     document.getElementById('wh-auto').checked = autoWH;
     document.getElementById('wh-st').textContent = '';
     document.getElementById('sync-st').textContent = '';
@@ -1716,33 +1779,40 @@ function renderVac() {
         return `<span class="vac-chip ${over?'over':u===MAX_WEEKS?'ok':''}">${e.name.split(' ').pop()}: ${u}/${MAX_WEEKS} Wo.</span>`;
     }).join('');
 
-    // Table
-    let t = `<thead><tr><th class="kw-th">KW</th>`;
-    home.forEach(e => t += `<th>${esc(e.name.split(' ').pop())}</th>`);
-    t += `</tr></thead><tbody>`;
+    // Table — Mitarbeiter = rows, KW = columns
+    let t = `<thead><tr><th style="position:sticky;left:0;z-index:3;background:var(--card);min-width:90px;padding:6px 8px;font-size:10px;font-weight:600;">Mitarbeiter</th>`;
     for (let kw = 1; kw <= totalKWs; kw++) {
         const isCur = kw === curKW && vacYear === curYear;
         const mon = kwToMonday(kw, vacYear);
         const monStr = `${mon.getDate()}.${mon.getMonth()+1}.`;
-        t += `<tr${isCur?' class="cur-kw"':''}>`;
-        t += `<td class="kw-num">KW ${kw}<br><span style="font-size:9px;color:var(--text3)">${monStr}</span></td>`;
-        home.forEach(e => {
+        t += `<th id="vac-kw-${kw}" style="min-width:44px;padding:4px 3px;font-size:9px;font-weight:${isCur?700:500};color:${isCur?'var(--accent)':'var(--text2)'};white-space:nowrap;text-align:center;">KW${kw}<br><span style="font-size:8px;color:var(--text3)">${monStr}</span></th>`;
+    }
+    t += `</tr></thead><tbody>`;
+    home.forEach(e => {
+        const u = used[e.id] || 0;
+        const over = u > MAX_WEEKS;
+        t += `<tr>`;
+        t += `<td style="position:sticky;left:0;background:var(--surface);padding:4px 8px;z-index:1;white-space:nowrap;">`;
+        t += `<div style="font-size:12px;font-weight:600;color:${COL[e.col]||'var(--text)'}">${esc(e.name.split(' ').pop())}</div>`;
+        t += `<div style="font-size:9px;color:${over?'var(--red)':u===MAX_WEEKS?'var(--gi)':'var(--text3)'};">${u}/${MAX_WEEKS} Wo.</div>`;
+        t += `</td>`;
+        for (let kw = 1; kw <= totalKWs; kw++) {
             const key = vacYear + '-' + kw;
             const marked = (data[e.id] || []).includes(key);
             const isOverlap = marked && overlap[kw] > 1;
             const cls = isOverlap ? 'vc overlap' : marked ? 'vc marked' : 'vc';
             t += `<td><button class="${cls}" onclick="toggleVacCell('${e.id}',${kw})">${marked?(isOverlap?'⚠':'✓'):''}</button></td>`;
-        });
+        }
         t += `</tr>`;
-    }
+    });
     t += `</tbody>`;
     document.getElementById('vac-table').innerHTML = t;
-    // Scroll to current KW
+    // Scroll current KW into view horizontally
     if (vacYear === curYear) {
         setTimeout(() => {
-            const rows = document.querySelectorAll('#vac-table tbody tr');
-            if (rows[curKW - 1]) rows[curKW - 1].scrollIntoView({
-                block: 'center',
+            const th = document.getElementById('vac-kw-' + curKW);
+            if (th) th.scrollIntoView({
+                inline: 'center',
                 behavior: 'smooth'
             });
         }, 50);
@@ -2049,8 +2119,27 @@ async function pushDataToDiscord() {
         const sIds = await postChunks(url, sChunks, getShiftsMsgIds());
         if (sIds) setShiftsMsgIds(sIds);
 
-        const total = dIds.length + (sIds ? sIds.length : 0);
-        setSyncSt(`✓ Gespeichert in Discord — ${total} Nachrichten (${new Date().toLocaleTimeString('de-DE')})`, `var(--gi)`);
+        // 3. Post/update registry message — contains all chunk IDs so any device can bootstrap
+        const registry = {
+            v: 1,
+            ts: new Date().toISOString(),
+            filiale,
+            dataIds: dIds,
+            shiftsIds: sIds || []
+        };
+        const regText = `🗂️ SYNC-INDEX · Filiale ${filiale}
+\`\`\`json
+${JSON.stringify(registry)}
+\`\`\``;
+        const existingRegId = localStorage.getItem(WH_REG_ID + '-' + filiale) || '';
+        const regMsg = await whPost(url, regText, existingRegId);
+        if (regMsg) {
+            localStorage.setItem(WH_REG_ID + '-' + filiale, regMsg.id);
+            updateSyncString();
+        }
+
+        const total = dIds.length + (sIds ? sIds.length : 0) + 1;
+        setSyncSt(`✓ Gespeichert — ${total} Nachrichten · Sync-String aktualisiert`, `var(--gi)`);
         showSave('In Discord gespeichert');
         updateSyncBadge();
     } catch (e) {
@@ -2106,6 +2195,7 @@ async function pullDataFromDiscord() {
             JSON.stringify((discordData.employees || []).map(e => e.id).sort())
         );
 
+        updateSyncString(); // ensure field always shows current sync string
         if (isConflict) {
             _pendingDiscordData = discordData;
             showConflictModal(localTs, discordTs, localEmpCount, discordEmpCount, discordShifts);
