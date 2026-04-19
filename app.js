@@ -26,7 +26,6 @@ let state={
 };
 let editCtx=null;
 let mgmtTab='staff';
-let waTab='week';
 let autoWH=false;
 let _whDebounce=null;
 let pendingImport=null;
@@ -212,7 +211,7 @@ function render(){
       else if(sh&&sh.type==='bs')cc+=' bs-c';
       else if(!sh||sh.type==='free')cc+=' frei-c';
       // time highlight applied to text, not background
-      body+=`<td><div class="${cc}" onclick="openShift('${ds}','${e.id}','${dl} ${day.getDate()}.${day.getMonth()+1}.','${esc(e.name)}')" title="Klicken zum Bearbeiten">`;
+      body+=`<td><div class="${cc}" onclick="cellClick(event,'${ds}','${e.id}','${dl} ${day.getDate()}.${day.getMonth()+1}.','${esc(e.name)}')" title="Klicken zum Bearbeiten"><button class="copy-btn" onclick="event.stopPropagation();copyCell('${ds}','${e.id}')" title="Schicht kopieren">⎘</button>`;
       if(ft&&!sh){body+=`<div class="hol-ov">FEIERTAG</div><div class="se">+</div>`;}
       else if(!sh||sh.type==='free'){
         body+=`<div class="frei-line"><svg><line x1="0" y1="0" x2="100%" y2="100%" stroke="var(--text3)" stroke-width="1.5" opacity="0.25"/></svg></div><div class="se">+</div>`;
@@ -554,7 +553,8 @@ async function postWH(forceNew=false){
     if(st)st.textContent='🔒 KW ist gesperrt — in Archiv entsperren';
     setTimeout(()=>{if(st)st.textContent='';},4000);return;
   }
-  const chunks=buildDiscordChunks();
+  await postWHImage(url,wk,forceNew);return;
+  // (text mode removed)
   const st=document.getElementById('wh-st');
   if(st)st.textContent=`⏳ Sende ${chunks.length} Nachrichten…`;
   // forceNew = ignore existing IDs → creates new archive messages instead of editing
@@ -667,18 +667,354 @@ async function fetchRegistry(url,regId){
 function testWH(){postWH();}
 function testWHNew(){postWH(true);}
 
-// ── DISCORD TEXT ─────────────────────────
-// ── DISCORD TEXT ─────────────────────────
-let dcFmt='list';   // 'list' | 'table'
-let dcChunks=[];
-let dcIdx=0;
-
-function setDcFmt(f){
-  dcFmt=f;
-  document.getElementById('dc-fmt-list').style.background=f==='list'?'var(--card2)':'var(--card)';
-  document.getElementById('dc-fmt-table').style.background=f==='table'?'var(--card2)':'var(--card)';
-  genDiscord();
+// ── PLAN IMAGE RENDERER ──────────────────
+function renderPlanCanvas(){
+  const canvas=document.getElementById('plan-canvas');
+  if(!canvas)return null;
+  drawPlanToCanvas(canvas);
+  return canvas;
 }
+
+function drawPlanToCanvas(canvas){
+  const {monday,employees,shifts,bundesland}=state;
+  const hols=getAllHols(monday,bundesland);
+  const home=employees.filter(e=>!e.isGuest);
+  const kw=getKW(monday);
+  const end=addDays(monday,5);
+  const today=fmtDate(new Date());
+
+  // ── A4 LANDSCAPE 150 DPI ──────────────────
+  const SCALE=2;
+  const W=1754, H=1240;
+
+  canvas.width=W*SCALE; canvas.height=H*SCALE;
+  canvas.style.width='100%'; canvas.style.height='auto';
+  const ctx=canvas.getContext('2d');
+  ctx.scale(SCALE,SCALE);
+
+  // ── PALETTE ──────────────────────────────
+  const C={
+    bg:'#0b0b0e',       surface:'#131318',  card:'#1a1a22',
+    border:'#2a2a3a',   border2:'#3a3a50',  border3:'#4a4a62',
+    accent:'#e8b800',   blue:'#58a6ff',     green:'#2ea043',
+    red:'#dc3545',      orange:'#f97316',   gi:'#10b981',
+    text:'#dddde8',     text2:'#8888a0',    text3:'#44444f',
+    // highlighter fills (opaque-ish like marker)
+    earlyFill:'rgba(232,184,0,0.22)',
+    lateFill:'rgba(58,130,246,0.22)',
+    mixedFill:'rgba(249,115,22,0.20)',
+    earlyText:'#f0c800',
+    lateText:'#82b8ff',
+    mixedText:'#fba060',
+    freiDiag:'#2a2a3a',
+    holBg:'#140e00',
+    todayBg:'#091220',
+  };
+
+  // ── LAYOUT CONSTANTS ─────────────────────
+  const PAD=14;
+  const DAYW=88;         // day label column width
+  const SUBT=8;          // text safe zone inside cell
+
+  // Header row heights
+  const H_TITLE=34;
+  const H_NAME=30;
+  const H_ROLE=24;
+  const H_WSOLL=22;
+  const H_SUBHDR=20;
+  const HDR_H=H_TITLE+H_NAME+H_ROLE+H_WSOLL+H_SUBHDR;
+
+  // Day group heights (3 sub-rows)
+  const FOOT_H=38;
+  const DAY_AVAIL=H-HDR_H-FOOT_H;
+  const DG=Math.floor(DAY_AVAIL/6);   // total per day group
+  const R_MAIN=Math.round(DG*0.56);   // main shift row
+  const R_P1=Math.round(DG*0.22);     // Pause 1
+  const R_P2=DG-R_MAIN-R_P1;         // Pause 2
+
+  // Column widths — split each employee into Zeit + Std
+  const empCount=home.length||1;
+  const COL_TOTAL=Math.floor((W-PAD*2-DAYW)/empCount);
+  const COL_Z=Math.round(COL_TOTAL*0.62);  // Zeit sub-col
+  const COL_S=COL_TOTAL-COL_Z;             // Std sub-col
+
+  // ── HELPERS ──────────────────────────────
+  function fx(ci){return PAD+DAYW+ci*COL_TOTAL;}  // x start of employee ci
+  function fz(ci){return fx(ci);}                  // Zeit sub-col x
+  function fs(ci){return fx(ci)+COL_Z;}            // Std sub-col x
+  function line(x1,y1,x2,y2,col,w=0.5){
+    ctx.strokeStyle=col;ctx.lineWidth=w;
+    ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  }
+  function rect(x,y,w,h,col){ctx.fillStyle=col;ctx.fillRect(x,y,w,h);}
+  function txt(s,x,y,font,col,align='left'){
+    ctx.font=font;ctx.fillStyle=col;ctx.textAlign=align;
+    ctx.fillText(String(s||''),x,y);ctx.textAlign='left';
+  }
+  function clip(s,maxPx,font){
+    ctx.font=font;
+    if(ctx.measureText(s).width<=maxPx)return s;
+    while(s.length>1&&ctx.measureText(s+'…').width>maxPx)s=s.slice(0,-1);
+    return s+'…';
+  }
+  function hline(y,col=C.border,w=0.5){line(0,y,W,y,col,w);}
+  function vline(x,y1,y2,col=C.border,w=0.5){line(x,y1,x,y2,col,w);}
+
+  // ── BACKGROUND ───────────────────────────
+  rect(0,0,W,H,C.bg);
+
+  // ── TITLE ROW ────────────────────────────
+  rect(0,0,W,H_TITLE,C.card);
+  txt(`Woche: KW ${kw}`,PAD+4,H_TITLE-10,'bold 13px system-ui',C.accent);
+  const dr=`${monday.getDate()}.${monday.getMonth()+1}. – ${end.getDate()}.${end.getMonth()+1}.${monday.getFullYear()}`;
+  txt(`Filiale ${filiale}  ·  ${dr}`,PAD+110,H_TITLE-10,'13px system-ui',C.text);
+  txt(`Stand: ${new Date().toLocaleString('de-DE')}`,W-PAD,H_TITLE-10,'10px system-ui',C.text3,'right');
+  hline(H_TITLE,C.border2,1);
+
+  // ── EMPLOYEE HEADER ROWS ─────────────────
+  let hy=H_TITLE;
+
+  // Row: Name
+  rect(0,hy,DAYW+PAD,H_NAME,C.surface);
+  txt('Name:',PAD+4,hy+H_NAME-8,'bold 9px system-ui',C.text3);
+  home.forEach((e,ci)=>{
+    const empColor=COL[e.col]||C.text;
+    const x=fz(ci);
+    rect(x,hy,COL_TOTAL,H_NAME,C.card);
+    const fn='bold 11px system-ui';
+    txt(clip(e.name,COL_TOTAL-8,fn),x+SUBT,hy+H_NAME-7,fn,empColor);
+    vline(x,hy,hy+H_NAME,C.border2);
+  });
+  hy+=H_NAME; hline(hy,C.border);
+
+  // Row: Tätigkeit
+  rect(0,hy,DAYW+PAD,H_ROLE,C.surface);
+  txt('Tätigkeit:',PAD+4,hy+H_ROLE-7,'bold 8px system-ui',C.text3);
+  home.forEach((e,ci)=>{
+    const x=fz(ci);
+    const fn='9px system-ui';
+    txt(clip(e.role,COL_TOTAL-8,fn),x+SUBT,hy+H_ROLE-7,fn,C.text2);
+    vline(x,hy,hy+H_ROLE,C.border2);
+  });
+  hy+=H_ROLE; hline(hy,C.border);
+
+  // Row: Wochen-Std
+  rect(0,hy,DAYW+PAD,H_WSOLL,C.surface);
+  txt('Wochen-Std.:',PAD+4,hy+H_WSOLL-6,'bold 8px system-ui',C.text3);
+  home.forEach((e,ci)=>{
+    const x=fz(ci);
+    const label=e.weeklyTarget?String(e.weeklyTarget).replace('.',','):'—';
+    txt(label,x+COL_TOTAL/2,hy+H_WSOLL-6,'bold 10px system-ui',C.accent,'center');
+    vline(x,hy,hy+H_WSOLL,C.border2);
+  });
+  hy+=H_WSOLL; hline(hy,C.border);
+
+  // Row: sub-column headers (Zeit | Std per employee)
+  rect(0,hy,DAYW+PAD,H_SUBHDR,C.surface);
+  txt('Soll-Std.',PAD+2,hy+H_SUBHDR-5,'bold 7px system-ui',C.text3);
+  home.forEach((e,ci)=>{
+    const zx=fz(ci); const sx=fs(ci);
+    txt('Zeit',zx+COL_Z/2,hy+H_SUBHDR-5,'bold 8px system-ui',C.text2,'center');
+    txt('Std.',sx+COL_S/2,hy+H_SUBHDR-5,'bold 8px system-ui',C.text2,'center');
+    vline(zx,hy,hy+H_SUBHDR,C.border2);
+    vline(sx,hy,hy+H_SUBHDR,C.border,0.4);
+  });
+  hy+=H_SUBHDR; hline(hy,C.border2,1);
+  const BODY_Y=hy;
+
+  // ── DAY GROUPS ───────────────────────────
+  for(let i=0;i<6;i++){
+    const day=addDays(monday,i); const ds=fmtDate(day);
+    const ft=hols[ds]; const isTod=ds===today;
+    const gy=BODY_Y+i*DG; // group top y
+
+    // Row y positions
+    const yMain=gy;
+    const yP1=gy+R_MAIN;
+    const yP2=gy+R_MAIN+R_P1;
+
+    // Day group background
+    const dayBg=ft?C.holBg:isTod?C.todayBg:C.bg;
+    rect(0,gy,W,DG,dayBg);
+
+    // Day label column background
+    rect(0,gy,DAYW+PAD,R_MAIN,C.surface);
+    rect(0,yP1,DAYW+PAD,R_P1,'rgba(19,19,24,0.6)');
+    rect(0,yP2,DAYW+PAD,R_P2,'rgba(19,19,24,0.6)');
+
+    // Today/holiday accent bar
+    if(isTod){rect(0,gy,3,DG,C.blue);}
+    else if(ft){rect(0,gy,3,DG,C.accent);}
+
+    // Date and day name
+    const dlName=DAYS[day.getDay()];
+    txt(`${day.getDate()}.${day.getMonth()+1}`,PAD+4,yMain+Math.round(R_MAIN*0.42),'bold 18px system-ui',isTod?C.blue:ft?C.accent:C.text);
+    txt(dlName,PAD+4,yMain+Math.round(R_MAIN*0.78),'12px system-ui',isTod?C.blue:C.text2);
+    if(ft){txt(ft.length>11?ft.slice(0,10)+'…':ft,PAD+2,yMain+R_MAIN-5,'bold 7px system-ui',C.accent);}
+
+    // Pause labels
+    txt('Pause',PAD+4,yP1+Math.round(R_P1*0.7),'9px system-ui',C.text3);
+    txt('Pause',PAD+4,yP2+Math.round(R_P2*0.7),'9px system-ui',C.text3);
+
+    // Sub-row dividers in day label col
+    hline(yP1,C.border,0.4);
+    hline(yP2,C.border,0.4);
+
+    // Employee cells
+    home.forEach((e,ci)=>{
+      const zx=fz(ci); const sx=fs(ci);
+      const sh=(shifts[ds]||{})[e.id];
+
+      // Column dividers
+      vline(zx,gy,gy+DG,C.border2,0.8);
+      vline(sx,gy,gy+DG,C.border,0.4);
+
+      // Sub-row dividers in cell
+      hline(yP1,C.border,0.3); // redrawn per cell area for clarity
+
+      if(!sh||sh.type==='free'){
+        // Diagonal strikethrough
+        ctx.strokeStyle=C.freiDiag; ctx.lineWidth=1.2; ctx.globalAlpha=0.5;
+        ctx.beginPath(); ctx.moveTo(zx+2,yMain+2); ctx.lineTo(zx+COL_TOTAL-2,yMain+R_MAIN-2); ctx.stroke();
+        ctx.globalAlpha=1;
+        return;
+      }
+
+      if(sh.type==='work'&&!sh.goFil){
+        const tc=shiftTimeClass(sh.start,sh.end);
+        const fills={'sh-early':C.earlyFill,'sh-late':C.lateFill,'sh-mixed':C.mixedFill};
+        const txts={'sh-early':C.earlyText,'sh-late':C.lateText,'sh-mixed':C.mixedText};
+        const fill=tc?fills[tc]:null;
+        const tColor=tc?txts[tc]:C.text;
+
+        // Highlight rect (like marker) on Zeit cell
+        if(fill){rect(zx+1,yMain+2,COL_Z-2,R_MAIN-4,fill);}
+
+        // Time text — split start / end on two lines
+        const FS=Math.max(9,Math.min(13,Math.floor(R_MAIN*0.32)));
+        txt(sh.start,zx+SUBT,yMain+Math.round(R_MAIN*0.42),`bold ${FS}px 'JetBrains Mono',monospace`,tColor);
+        txt(sh.end,  zx+SUBT,yMain+Math.round(R_MAIN*0.76),`bold ${FS}px 'JetBrains Mono',monospace`,tColor);
+
+        // Hours in Std col
+        const h=calcH(sh.start,sh.end,sh.pause);
+        if(h>0){
+          const hs=String(Math.round(h*100)/100).replace('.',',');
+          txt(hs,sx+COL_S/2,yMain+Math.round(R_MAIN*0.58),`bold 11px system-ui`,C.accent,'center');
+        }
+
+        // Pause duration in P1 row
+        if(sh.pause>0){
+          txt(`${sh.pause} Min.`,zx+SUBT,yP1+Math.round(R_P1*0.72),`9px system-ui`,C.text3);
+        }
+        // Note in P2 row
+        if(sh.note){
+          txt(clip(sh.note,COL_TOTAL-10,'8px system-ui'),zx+SUBT,yP2+Math.round(R_P2*0.72),'italic 8px system-ui',C.accent);
+        }
+      } else if(sh.type==='work'&&sh.goFil){
+        rect(zx+1,yMain+2,COL_Z-2,R_MAIN-4,'rgba(16,185,129,0.15)');
+        txt(`→ ${sh.goFil}`,zx+SUBT,yMain+Math.round(R_MAIN*0.5),'bold 10px system-ui',C.gi);
+        if(sh.goTimes==='yes'){txt(`${sh.start}–${sh.end}`,zx+SUBT,yMain+Math.round(R_MAIN*0.78),'9px system-ui',C.text2);}
+      } else {
+        // Krank / Urlaub / BS / Abwesend
+        const icons={vacation:'🏖',sick:'🤒',bs:'🏫',absent:'◌'};
+        const txtsMap={vacation:'Urlaub',sick:'Krank',bs:'BS',absent:'Abw.'};
+        const cols={vacation:C.blue,sick:C.red,bs:C.blue,absent:C.text2};
+        const ec=cols[sh.type]||C.text2;
+        rect(zx+1,yMain+2,COL_Z-2,R_MAIN-4,ec+'18');
+        ctx.font=`${Math.round(R_MAIN*0.32)}px system-ui`;
+        ctx.fillText(icons[sh.type]||'',zx+SUBT,yMain+Math.round(R_MAIN*0.55));
+        txt(txtsMap[sh.type]||sh.type,zx+SUBT+Math.round(R_MAIN*0.36)+2,yMain+Math.round(R_MAIN*0.55),'10px system-ui',ec);
+      }
+    });
+
+    // Full-width group bottom border
+    hline(gy+DG,C.border2,0.8);
+  }
+
+  // ── FOOTER / TOTALS ROW ──────────────────
+  const fy=BODY_Y+6*DG;
+  rect(0,fy,W,FOOT_H,C.card);
+  hline(fy,C.border2,1);
+  txt('Gesamtstunden:',PAD+4,fy+FOOT_H-10,'bold 10px system-ui',C.text2);
+
+  home.forEach((e,ci)=>{
+    const zx=fz(ci); const sx=fs(ci);
+    const h=wkH(e.id); const tgt=e.weeklyTarget?parseFloat(e.weeklyTarget):null;
+    vline(zx,fy,fy+FOOT_H,C.border2,0.8);
+    vline(sx,fy,fy+FOOT_H,C.border,0.4);
+    if(!h)return;
+    let col=C.accent; let label=String(Math.round(h*10)/10).replace('.',',');
+    if(tgt){
+      const dv=Math.round((h-tgt)*100)/100;
+      col=dv>0.05?C.red:dv<-0.5?C.green:C.accent;
+      const sign=dv>0?'+':'';
+      label+=` (${sign}${String(dv).replace('.',',')})`;
+    }
+    const FS=Math.max(8,Math.min(11,Math.floor(COL_TOTAL/12)));
+    txt(label,zx+COL_TOTAL/2,fy+FOOT_H-10,`bold ${FS}px 'JetBrains Mono',monospace`,col,'center');
+  });
+
+  // Outer border
+  ctx.strokeStyle=C.border2; ctx.lineWidth=1.5;
+  ctx.strokeRect(PAD,0,W-PAD*2,H);
+  // Right vertical close-off
+  vline(W-PAD,0,H,C.border2,1.5);
+
+}
+function getPlanPNGBlob(){
+  return new Promise(resolve=>{
+    const canvas=document.createElement('canvas');
+    drawPlanToCanvas(canvas);
+    canvas.toBlob(resolve,'image/png');
+  });
+}
+
+function downloadPlanPNG(){
+  const canvas=document.getElementById('plan-canvas');
+  if(!canvas)return;
+  const link=document.createElement('a');
+  link.download=`dienstplan-kw${getKW(state.monday)}-${state.monday.getFullYear()}.png`;
+  link.href=canvas.toDataURL('image/png');
+  link.click();
+}
+
+async function postWHImage(url,wk,forceNew){
+  const st=document.getElementById('wh-st');
+  if(st)st.textContent='⏳ Bild wird erstellt…';
+  try{
+    const blob=await getPlanPNGBlob();
+    const kw=getKW(state.monday);
+    const caption=`📋 **Dienstplan KW ${kw} · Filiale ${filiale}**`;
+    const existingIds=forceNew?[]:getWHMsgIds(wk);
+    const msgId=existingIds[0]||'';
+
+    const fd=new FormData();
+    fd.append('files[0]',blob,`dienstplan-kw${kw}.png`);
+    fd.append('payload_json',JSON.stringify({content:caption}));
+
+    let resp;
+    // Discord images can't be patched (no file edit via PATCH), always post new
+    // but delete old one if exists — actually just always post fresh
+    resp=await fetch(`${url}?wait=true`,{method:'POST',body:fd});
+
+    if(resp&&resp.ok){
+      const d=await resp.json();
+      setWHMsgIds(wk,[d.id]);
+      document.getElementById('wh-first-notice').style.display='none';
+      updateSyncBadge();refreshArchive();
+      showSave('Bild gepostet · Discord ✓');
+      if(st)st.textContent='✓ Bild gepostet';
+      setTimeout(()=>{if(st)st.textContent='';},4000);
+    } else {
+      const err=resp?await resp.text():'';
+      if(st)st.textContent='✕ Fehler — '+err.slice(0,60);
+    }
+  }catch(e){if(st)st.textContent='✕ Netzwerkfehler';console.error(e);}
+}
+
+// ── DISCORD TEXT ─────────────────────────
+// ── DISCORD TEXT ─────────────────────────
+
 
 // ── TEXT TABLE ENGINE ─────────────────────────────────────
 // Renders a tablesgenerator.com-style ASCII table, works in
@@ -711,135 +1047,8 @@ function shiftStr(s,includeHours=true){
   return{vacation:'Urlaub',bs:'BS',sick:'Krank',absent:'Abw.'}[s.type]||s.type;
 }
 
-function buildDayTextTable(ds,day,ft,employees,shifts){
-  const dl=DAYS[day.getDay()];const dd=`${day.getDate()}.${day.getMonth()+1}.`;
-  const header=`${dl} ${dd}`;
-  if(ft) return`[${header} — ${ft}]`;
-  const home=employees.filter(e=>!e.isGuest);
-  if(!home.length) return `[${header}]\n  – keine Mitarbeiter –`;
-  const rows=[['Name','Zeit']];
-  home.forEach(e=>{
-    const s=(shifts[ds]||{})[e.id];
-    const nm=e.name.split(' ').slice(-1)[0];
-    let zeit='—';
-    if(!s||s.type==='free'){zeit='—';}
-    else if(s.type==='work'&&!s.goFil){zeit=`${s.start}-${s.end}`;}
-    else if(s.type==='work'&&s.goFil){zeit=`> ${s.goFil}${s.goTimes==='yes'?' '+s.start+'-'+s.end:''}`;}
-    else{zeit={vacation:'Urlaub',bs:'BS',sick:'Krank',absent:'Abw.'}[s.type]||s.type;}
-    if(s&&s.note&&s.type==='work'&&!s.goFil)zeit+=` [${s.note}]`;
-    rows.push([nm,zeit]);
-  });
-  return`[${header}]\n`+textTable(rows);
-}
-
-function buildDayListBlock(ds,day,ft,employees,shifts,hols){
-  const dl=DAYS[day.getDay()];const dd=`${day.getDate()}.${day.getMonth()+1}.`;
-  let out='';
-  if(ft){out+=`🎉 **${dl} ${dd} — ${ft}**\n`;return out;}
-  out+=`**${dl} ${dd}**\n`;
-  const home=employees.filter(e=>!e.isGuest);
-  home.forEach(emp=>{    const s=(shifts[ds]||{})[emp.id];
-    const pfx=emp.isGuest?`← ${emp.guestFrom} `:'';
-    let str='';
-    if(!s||s.type==='free'){str='—';}
-    else if(s.type==='work'){if(s.goFil){str=`→ Filiale ${s.goFil}`;if(s.goTimes==='yes')str+=` · ${s.start}–${s.end}`;}else{str=`${s.start}–${s.end}`;if(s.note)str+=` · _${s.note}_`;}}
-    else if(s.type==='vacation'){str='🏖 Urlaub';}
-    else if(s.type==='bs'){str='🏫 BS';}
-    else str={sick:'🤒 Krank',absent:'◌ Abwesend'}[s.type]||s.type;
-    out+=`  •${pfx}**${emp.name}**: ${str}\n`;
-  });
-
-  return out;
-}
-
-function buildDayTableBlock(ds,day,ft,employees,shifts){
-  const dl=DAYS[day.getDay()];const dd=`${day.getDate()}.${day.getMonth()+1}.`;
-  if(ft) return`🎉 **${dl} ${dd} — ${ft}**\n`;
-  const tbl=buildDayTextTable(ds,day,ft,employees,shifts);
-  return`\`\`\`\n${tbl}\n\`\`\`\n`;
-}
-
-function buildDiscordChunks(){
-  const{monday,employees,shifts,bundesland}=state;
-  const hols=getAllHols(monday,bundesland);
-  const kw=getKW(monday);const end=addDays(monday,5);
-  const dr=`${monday.getDate()}.${monday.getMonth()+1}. – ${end.getDate()}.${end.getMonth()+1}.${monday.getFullYear()}`;
-  const header=`📋 **DIENSTPLAN – KW ${kw} | ${dr}**\n**Filiale ${filiale}**\n${'━'.repeat(32)}`;
-
-  const dayBlocks=[];
-  for(let i=0;i<6;i++){
-    const day=addDays(monday,i);const ds=fmtDate(day);const ft=hols[ds];
-    dayBlocks.push(dcFmt==='table'
-      ?buildDayTableBlock(ds,day,ft,employees,shifts)
-      :buildDayListBlock(ds,day,ft,employees,shifts,hols));
-  }
-
-  let totals=`${'━'.repeat(32)}\n**Gesamtstunden:**\n`;
-  const rkEmps=employees.filter(e=>!e.isGuest&&e.type==='rk');
-  employees.filter(e=>!e.isGuest&&e.type!=='rk').forEach(e=>{
-    const h=wkH(e.id);const tgt=e.weeklyTarget?parseFloat(e.weeklyTarget):null;
-    if(!h)return;
-    let line=`  ${e.name}: **${fmtH(h)}**`;
-    if(tgt){const dv=Math.round((h-tgt)*100)/100;const sign=dv>0?'+':'';line+=` (Soll ${String(tgt).replace('.',',')} Std, ${sign}${String(dv).replace('.',',')} Std)`;}
-    totals+=line+'\n';
-  });
-  totals+=`  **Team gesamt: ${fmtH(teamTotalH())||'0 Std'}**\n`;
-  if(rkEmps.length){totals+=`**Reinigung (exkl.):**\n`;rkEmps.forEach(e=>{const h=wkH(e.id);if(h>0)totals+=`  ${e.name}: ${fmtH(h)} / ${RK_CAP} Std${h>RK_CAP?' ⚠':''}\n`;});}
-  const gs=employees.filter(e=>e.isGuest);
-  if(gs.length){totals+=`**Gäste:**\n`;gs.forEach(e=>{const h=wkH(e.id);if(h>0)totals+=`  ${e.name} ← ${e.guestFrom}: **${fmtH(h)}**\n`;});}
-  totals+=`\n_Stand: ${new Date().toLocaleString('de-DE')}_`;
-
-  const MAX=1900;
-  const chunks=[];
-  let cur=header;
-  dayBlocks.forEach(block=>{
-    const candidate=cur+'\n\n'+block;
-    if(candidate.length>MAX){if(cur!==header)chunks.push(cur.trim());cur=block;}
-    else cur=candidate;
-  });
-  if(cur.trim())chunks.push(cur.trim());
-  chunks.push(totals.trim());
-  return chunks;
-}
-
-function buildDiscordText(){return buildDiscordChunks().join('\n\n━━━━━━━━━━━━━━━━\n\n');}
-
-
-let _dcChunkIdx=0;
-let _dcChunksCache=[];
-
 function genDiscord(){
-  _dcChunksCache=buildDiscordChunks();
-  _dcChunkIdx=0;
-  renderDcChunk();
-}
-
-function renderDcChunk(){
-  const total=_dcChunksCache.length;
-  document.getElementById('discord-ta').value=_dcChunksCache[_dcChunkIdx]||'';
-  document.getElementById('dc-msg-idx').textContent=_dcChunkIdx+1;
-  document.getElementById('dc-msg-total').textContent=total;
-  const labels=['Kopfzeile + Mo–Mi','Do–Sa','Gesamt'];
-  const auto=['Kopfzeile','Mo','Di','Mi','Do','Fr','Sa','Gesamt'];
-  document.getElementById('dc-msg-label').textContent=_dcChunkIdx<total-1?`Nachricht ${_dcChunkIdx+1}`:'Gesamtstunden';
-  document.getElementById('dc-prev').disabled=_dcChunkIdx===0;
-  document.getElementById('dc-next').disabled=_dcChunkIdx===total-1;
-  document.getElementById('dc-msg-count').textContent=`${total} Nachrichten`;
-}
-
-function dcNavMsg(dir){
-  _dcChunkIdx=Math.max(0,Math.min(_dcChunksCache.length-1,_dcChunkIdx+dir));
-  renderDcChunk();
-}
-
-function copyAllDc(){
-  const all=_dcChunksCache.join('\n\n');
-  navigator.clipboard?.writeText(all).catch(()=>{
-    const ta=document.createElement('textarea');ta.value=all;
-    document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();
-  });
-  const ok=document.getElementById('dc-ok');ok.textContent='✓ Alle kopiert!';ok.style.display='inline';
-  setTimeout(()=>{ok.style.display='none';ok.textContent='✓ Kopiert!';},2500);
+  renderPlanCanvas();
 }
 
 function showDiscord(){
@@ -855,143 +1064,11 @@ function showDiscord(){
   const wk=fmtDate(state.monday);
   const hasMsgIds=!!getWHMsgIds(wk).length;
   document.getElementById('wh-first-notice').style.display=(getWH()&&!hasMsgIds&&!isWkLocked(wk))?'block':'none';
-  setDcFmt(dcFmt);
   updateSyncBadge();
   refreshArchive();
 }
 function closeDiscord(){document.getElementById('discord-ov').style.display='none';}
 
-// ── WHATSAPP ─────────────────────────────
-let waFmt='table';
-
-function setWAFmt(f){
-  waFmt=f;
-  document.getElementById('wa-fmt-list').style.background=f==='list'?'var(--card2)':'var(--card)';
-  document.getElementById('wa-fmt-table').style.background=f==='table'?'var(--card2)':'var(--card)';
-  genWA();
-}
-
-function padR(s,n){const str=String(s||'');return str.length>=n?str.slice(0,n):str+' '.repeat(n-str.length);}
-function padL(s,n){const str=String(s||'');return str.length>=n?str.slice(0,n):' '.repeat(n-str.length)+str;}
-
-function buildWADayTable(ds,day,ft,employees,shifts){
-  // Use the same unified text table engine, wrapped in WA code block
-  const dl=DAYS[day.getDay()];const dd=`${day.getDate()}.${day.getMonth()+1}.`;
-  if(ft) return`🎉 *${dl} ${dd} — ${ft}*\n`;
-  const tbl=buildDayTextTable(ds,day,ft,employees,shifts);
-  return`\`\`\`\n${tbl}\n\`\`\`\n`;
-}
-function empTag(e){const first=e.name.split(' ').pop();return e.phone?`@${first}`:e.name;}
-function fmtWAShift(sh,e){
-  const tag=empTag(e);
-  if(!sh||sh.type==='free')return`${tag}: —`;
-  if(sh.type==='sick')return`${tag}: 🤒 _krank_`;
-  if(sh.type==='vacation')return`${tag}: 🏖 _Urlaub_`;
-  if(sh.type==='bs')return`${tag}: 🏫 _Berufsschule_`;
-  if(sh.type==='absent')return`${tag}: abwesend`;
-  if(sh.type==='work'){
-    if(sh.goFil){const t=sh.goTimes==='yes'?` ${sh.start}–${sh.end}`:'';return`${tag}: → Filiale ${sh.goFil}${t}`;}
-    let l=`${tag}: ${sh.start}–${sh.end}`;
-    if(sh.note)l+=` – _${sh.note}_`;return l;
-  }
-  return`${tag}: —`;
-}
-function buildWAWeek(){
-  const{monday,employees,shifts,bundesland}=state;
-  const hols=getAllHols(monday,bundesland);const kw=getKW(monday);const end=addDays(monday,5);
-  const dr=`${monday.getDate()}.${monday.getMonth()+1}. – ${end.getDate()}.${end.getMonth()+1}.${monday.getFullYear()}`;
-  let out=`*📋 Dienstplan KW ${kw}*\n*Filiale ${filiale} · ${dr}*\n${'─'.repeat(26)}\n\n`;
-  for(let i=0;i<6;i++){
-    const day=addDays(monday,i);const ds=fmtDate(day);const ft=hols[ds];
-    if(waFmt==='table'){out+=buildWADayTable(ds,day,ft,employees,shifts)+'\n';}
-    else{
-      const dl=DAYS[day.getDay()];const dd=`${day.getDate()}.${day.getMonth()+1}.`;
-      if(ft){out+=`*${dl} ${dd} — 🎉 ${ft}*\n\n`;continue;}
-      out+=`*${dl} ${dd}*\n`;
-      let any=false;
-      employees.filter(e=>!e.isGuest).forEach(e=>{const sh=(shifts[ds]||{})[e.id];const l=fmtWAShift(sh,e);if(l){out+=`  ${l}\n`;any=true;}});
-    
-      if(!any)out+=`  _– keine Dienste –_\n`;out+='\n';
-    }
-  }
-  out+=`${'─'.repeat(26)}\n*Gesamtstunden:*\n`;
-  const rkListWA=employees.filter(e=>!e.isGuest&&e.type==='rk');
-  employees.filter(e=>!e.isGuest&&e.type!=='rk').forEach(e=>{
-    const h=wkH(e.id);const tgt=e.weeklyTarget?parseFloat(e.weeklyTarget):null;
-    if(!h)return;let l=`  ${e.name}: *${fmtH(h)}*`;
-    if(tgt){const dv=Math.round((h-tgt)*100)/100;const sign=dv>0?'+':'';l+=` (Soll ${String(tgt).replace('.',',')} Std, ${sign}${String(dv).replace('.',',')} Std)`;}
-    out+=l+'\n';
-  });
-  const tHW=teamTotalH();
-  out+=`  *Team gesamt: ${fmtH(tHW)||'0 Std'}*\n`;
-  if(rkListWA.length){
-    out+=`_Reinigung (exkl.):_\n`;
-    rkListWA.forEach(e=>{const h=wkH(e.id);if(h>0)out+=`  ${e.name}: ${fmtH(h)} / ${RK_CAP} Std${h>RK_CAP?' ⚠':''}\n`;});
-  }
-  out+=`\n_Stand: ${new Date().toLocaleString('de-DE')}_`;return out;
-}
-function buildWADay(idx){
-  const{monday,employees,shifts,bundesland}=state;
-  const hols=getAllHols(monday,bundesland);
-  const day=addDays(monday,idx);const ds=fmtDate(day);const ft=hols[ds];
-  const dl=DAYS[day.getDay()];const dd=`${day.getDate()}.${day.getMonth()+1}.${day.getFullYear()}`;
-  let out=`*📋 Dienst ${dl} ${dd}*\n*Filiale ${filiale}*\n${'─'.repeat(22)}\n\n`;
-  if(ft){out+=`🎉 *${ft}*\n_Feiertag_\n\n_Stand: ${new Date().toLocaleString('de-DE')}_`;return out;}
-  // Sort: working staff by start time first, then everyone else
-  const sorted=[...employees.filter(e=>!e.isGuest)].sort((a,b)=>{
-    const sa=(shifts[ds]||{})[a.id];const sb=(shifts[ds]||{})[b.id];
-    const aWork=sa&&sa.type==='work'&&!sa.goFil;const bWork=sb&&sb.type==='work'&&!sb.goFil;
-    if(aWork&&!bWork)return -1;if(!aWork&&bWork)return 1;
-    if(aWork&&bWork)return(sa.start||'').localeCompare(sb.start||'');
-    return 0;
-  });
-  sorted.forEach(e=>{const sh=(shifts[ds]||{})[e.id];const l=fmtWAShift(sh,e);if(l)out+=`${l}\n`;});
-  out+=`\n_Stand: ${new Date().toLocaleString('de-DE')}_`;return out;
-}
-function buildWAPersonal(empId){
-  const{monday,employees,shifts,bundesland}=state;
-  const hols=getAllHols(monday,bundesland);
-  const e=employees.find(x=>x.id===empId);if(!e)return'';
-  const kw=getKW(monday);
-  let out=`*📋 Deine Schichten – KW ${kw}*\n*${e.name} · Filiale ${filiale}*\n${'─'.repeat(22)}\n\n`;
-  for(let i=0;i<6;i++){
-    const day=addDays(monday,i);const ds=fmtDate(day);const ft=hols[ds];
-    const dl=DAYS[day.getDay()];const dd=`${day.getDate()}.${day.getMonth()+1}.`;
-    const sh=(shifts[ds]||{})[empId];
-    if(ft&&!sh){out+=`${dl} ${dd}: 🎉 _${ft}_\n`;continue;}
-    if(!sh||sh.type==='free'){out+=`${dl} ${dd}: —\n`;continue;}
-    if(sh.type==='sick'){out+=`${dl} ${dd}: 🤒 _krank_\n`;continue;}
-    if(sh.type==='vacation'){out+=`${dl} ${dd}: 🏖 _Urlaub_\n`;continue;}
-    if(sh.type==='bs'){out+=`${dl} ${dd}: 🏫 _Berufsschule_\n`;continue;}
-    if(sh.type==='work'){
-      if(sh.goFil){const t=sh.goTimes==='yes'?` ${sh.start}–${sh.end}`:'';out+=`${dl} ${dd}: → Filiale ${sh.goFil}${t}\n`;}
-      else{let l=`*${dl} ${dd}: ${sh.start}–${sh.end}*`;if(sh.pause>0)l+=` P:${sh.pause}Min.`;if(sh.note)l+=` – _${sh.note}_`;out+=l+'\n';}
-    }
-  }
-  out+=`\n_Stand: ${new Date().toLocaleString('de-DE')}_`;return out;
-}
-function showWA(){waFmt='table';waTab='week';populateWASelects();genWA();switchWATab('week');setWAFmt('table');document.getElementById('wa-ov').style.display='flex';}
-function closeWA(){document.getElementById('wa-ov').style.display='none';}
-function populateWASelects(){
-  const dsel=document.getElementById('wa-day-sel');dsel.innerHTML='';
-  for(let i=0;i<6;i++){const day=addDays(state.monday,i);const opt=document.createElement('option');opt.value=i;opt.textContent=`${DAYS[day.getDay()]} ${day.getDate()}.${day.getMonth()+1}.`;if(fmtDate(day)===fmtDate(new Date()))opt.selected=true;dsel.appendChild(opt);}
-  const esel=document.getElementById('wa-emp-sel');esel.innerHTML='';
-  state.employees.filter(e=>!e.isGuest).forEach(e=>{const opt=document.createElement('option');opt.value=e.id;opt.textContent=e.name+(e.phone?' 📱':'');esel.appendChild(opt);});
-}
-function switchWATab(tab){
-  waTab=tab;
-  ['week','day','personal'].forEach(t=>{const b=document.getElementById('wa-t-'+t);b.style.background=t===tab?'var(--card2)':'var(--card)';});
-  document.getElementById('wa-day-pick').style.display=tab==='day'?'block':'none';
-  document.getElementById('wa-emp-pick').style.display=tab==='personal'?'block':'none';
-  genWA();
-}
-function genWA(){
-  let t='';
-  if(waTab==='week')t=buildWAWeek();
-  else if(waTab==='day')t=buildWADay(parseInt(document.getElementById('wa-day-sel').value)||0);
-  else{const id=document.getElementById('wa-emp-sel').value;t=id?buildWAPersonal(id):'';}
-  document.getElementById('wa-ta').value=t;
-}
 
 // ── UTILS ────────────────────────────────
 function copyEl(id,okId){const ta=document.getElementById(id);ta.select();document.execCommand('copy');const ok=document.getElementById(okId);ok.style.display='inline';setTimeout(()=>ok.style.display='none',2500);}
@@ -1076,7 +1153,7 @@ function renderVac(){
     const isCur=kw===curKW&&vacYear===curYear;
     const mon=kwToMonday(kw,vacYear);
     const monStr=`${mon.getDate()}.${mon.getMonth()+1}.`;
-    t+=`<th id="vac-kw-${kw}" style="min-width:44px;padding:4px 3px;font-size:9px;font-weight:${isCur?700:500};color:${isCur?'var(--accent)':'var(--text2)'};white-space:nowrap;text-align:center;">KW${kw}<br><span style="font-size:8px;color:var(--text3)">${monStr}</span></th>`;
+    t+=`<th id="vac-kw-${kw}" style="min-width:38px;padding:4px 2px;font-size:9px;font-weight:${isCur?700:500};color:${isCur?'var(--accent)':'var(--text2)'};white-space:nowrap;text-align:center;">${kw}<br><span style="font-size:8px;color:var(--text3)">${monStr}</span></th>`;
   }
   t+=`</tr></thead><tbody>`;
   home.forEach(e=>{
@@ -1420,9 +1497,59 @@ function setSyncSt(msg,color){
   el.textContent=msg;
 }
 
+// ── COPY / PASTE CELL ────────────────────
+let _copyBuf=null; // {ds, empId, shift}
+
+function copyCell(ds,empId){
+  const sh=(state.shifts[ds]||{})[empId];
+  _copyBuf={ds,empId,shift:sh?JSON.parse(JSON.stringify(sh)):null};
+  // highlight source
+  document.querySelectorAll('.sc.copy-source').forEach(el=>el.classList.remove('copy-source'));
+  // find the cell — cells have onclick with ds and empId
+  document.querySelectorAll('.sc').forEach(el=>{
+    const oc=el.getAttribute('onclick')||'';
+    if(oc.includes(`'${ds}'`)&&oc.includes(`'${empId}'`))el.classList.add('copy-source');
+  });
+  showSave('Schicht kopiert — Ziel-Zelle klicken zum Einfügen');
+}
+
+function cellClick(event,ds,empId,dayLabel,empName){
+  if(_copyBuf){
+    // paste mode
+    event.stopPropagation();
+    if(_copyBuf.ds===ds&&_copyBuf.empId===empId){
+      // clicked source again → cancel
+      cancelCopy();return;
+    }
+    pasteCell(ds,empId);
+  } else {
+    openShift(ds,empId,dayLabel,empName);
+  }
+}
+
+function pasteCell(ds,empId){
+  if(!_copyBuf) return;
+  if(!state.shifts[ds]) state.shifts[ds]={};
+  if(_copyBuf.shift){
+    state.shifts[ds][empId]=JSON.parse(JSON.stringify(_copyBuf.shift));
+  } else {
+    delete state.shifts[ds][empId];
+  }
+  cancelCopy();
+  saveData();render();
+}
+
+function cancelCopy(){
+  _copyBuf=null;
+  document.querySelectorAll('.sc.copy-source').forEach(el=>el.classList.remove('copy-source'));
+}
+
+// Cancel copy on Escape key
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&_copyBuf)cancelCopy();});
+
 // backdrop close
 ['shift-modal','edit-emp-modal','fil-modal'].forEach(id=>document.getElementById(id).addEventListener('click',function(e){if(e.target===this)this.style.display='none';}));
-['mgmt-ov','discord-ov','wa-ov','vac-ov'].forEach(id=>document.getElementById(id).addEventListener('click',function(e){if(e.target===this)this.style.display='none';}));
+['mgmt-ov','discord-ov','vac-ov'].forEach(id=>document.getElementById(id).addEventListener('click',function(e){if(e.target===this)this.style.display='none';}));
 document.getElementById('conflict-modal').addEventListener('click',function(e){if(e.target===this)this.style.display='none';});
 
 init();
