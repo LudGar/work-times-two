@@ -37,7 +37,14 @@ body {
 	background: var(--bg);
 	color: var(--text);
 	font-family: 'Outfit', system-ui, sans-serif;
-	min-height: 100vh;
+	height: 100vh;
+	overflow: hidden;
+}
+
+#main-app {
+	display: none;
+	height: 100vh;
+	flex-direction: column;
 }
 
 input,
@@ -238,13 +245,18 @@ textarea {
 
 /* ── TABLE ──────────────────────────────── */
 .sched-wrap {
-	overflow-x: auto;
+	overflow: hidden;
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
 }
 
 table.sched {
 	border-collapse: collapse;
 	width: 100%;
-	min-width: 480px;
+	height: 100%;
+	table-layout: fixed;
 }
 
 .sched th,
@@ -255,8 +267,7 @@ table.sched {
 
 td.day-col,
 th.day-th {
-	width: 84px;
-	min-width: 84px;
+	width: 86px;
 	background: var(--surface);
 	position: sticky;
 	left: 0;
@@ -274,6 +285,30 @@ thead th.day-th {
 	z-index: 4;
 }
 
+.sched tbody {
+	height: 100%;
+}
+
+.sched tbody tr {
+	height: calc(100% / 6);
+}
+
+.sc {
+	padding: 6px 8px;
+	cursor: pointer;
+	width: 100%;
+	height: 100%;
+	box-sizing: border-box;
+	transition: background .1s;
+	position: relative;
+	overflow: hidden;
+}
+
+.emp-th {
+	overflow: hidden;
+}
+
+/* table-layout:fixed distributes remaining width equally */
 .day-cell {
 	padding: 7px 9px;
 }
@@ -321,11 +356,12 @@ tr.is-today.is-hol td {
 }
 
 .emp-th {
-	min-width: 118px;
+	overflow: hidden;
 }
 
 .emp-hdr {
 	padding: 7px 9px;
+	overflow: hidden;
 }
 
 .emp-name {
@@ -395,9 +431,9 @@ td.div-col {
 .sc {
 	padding: 6px 8px;
 	cursor: pointer;
-	min-height: 62px;
 	transition: background .1s;
 	position: relative;
+	overflow: hidden;
 }
 
 .sc:hover {
