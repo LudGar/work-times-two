@@ -46,6 +46,7 @@
                <button class="btn btn-sm" onclick="showMgmt('guest')">← Gast</button>
                <button class="btn btn-y btn-sm" onclick="showDiscord()">Discord ↗</button>
                <button class="btn btn-wa btn-sm" onclick="showWA()">WhatsApp ↗</button>
+               <button class="btn btn-sm" style="background:rgba(37,211,102,.08);border-color:rgba(37,211,102,.25);color:var(--gi)" onclick="showVac()">🏖 Urlaub</button>
             </div>
          </div>
          <div class="sched-wrap">
@@ -294,19 +295,20 @@
                <span class="copy-ok" id="dc-ok">✓ Kopiert!</span>
                <button class="btn btn-sm" onclick="genDiscord()" style="margin-left:auto">↻ Neu</button>
             </div>
-            <!-- Webhook -->
+            <!-- Webhook: visible plan channel -->
             <div style="margin-top:12px;padding:10px;background:rgba(88,101,242,.08);border:1px solid rgba(88,101,242,.22);border-radius:var(--r);">
-               <div style="font-size:11px;font-weight:700;color:#7289da;margin-bottom:6px;">⬡ Auto-Webhook · Filiale <span id="wh-fil">–</span></div>
-               <div style="font-size:11px;color:var(--text2);margin-bottom:7px;line-height:1.6;">Plan wird in <b>mehrere Nachrichten</b> aufgeteilt (max. 1900 Zeichen je). Kanaleinstellungen → Integrationen → Webhook.</div>
+               <div style="font-size:11px;font-weight:700;color:#7289da;margin-bottom:4px;">⬡ Dienstplan-Kanal · Filiale <span id="wh-fil">–</span></div>
+               <div style="font-size:10px;color:var(--text3);margin-bottom:7px;">Für Kollegen — sichtbarer Wochenplan (Text-Tabelle)</div>
                <div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:8px;">
-                  <input type="url" id="wh-url" placeholder="https://discord.com/api/webhooks/…" style="background:var(--card2);border:1px solid var(--border2);color:var(--text);padding:7px 9px;border-radius:var(--r);font-size:11px;">
+                  <input type="url" id="wh-url" placeholder="https://discord.com/api/webhooks/… (sichtbarer Kanal)" style="background:var(--card2);border:1px solid var(--border2);color:var(--text);padding:7px 9px;border-radius:var(--r);font-size:11px;">
                   <button class="btn btn-sm" onclick="saveWH()">Speichern</button>
                </div>
                <div id="wh-first-notice" style="display:none;font-size:11px;padding:6px 9px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.22);border-radius:var(--r);margin-bottom:8px;color:var(--go);line-height:1.6;">
-                  ⚠ Noch kein Post für diese Woche. Klicke <b>Jetzt senden</b> für den ersten Post.
+                  ⚠ Noch kein Post für diese Woche. Klicke <b>▶ Aktualisieren</b> für den ersten Post.
                </div>
                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                  <button class="btn btn-sm" onclick="testWH()">▶ Jetzt senden</button>
+                  <button class="btn btn-sm" onclick="testWH()">▶ Aktualisieren</button>
+                  <button class="btn btn-sm" onclick="testWHNew()" style="font-size:10px">+ Neu posten</button>
                   <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer;">
                   <input type="checkbox" id="wh-auto" onchange="toggleAutoWH(this.checked)" style="accent-color:var(--gi)">
                   Auto-Sync
@@ -314,14 +316,40 @@
                   <span id="wh-st" style="font-size:11px;color:var(--text2);margin-left:auto"></span>
                </div>
                <div style="margin-top:7px;font-size:10px;color:var(--text3);border-top:1px solid var(--border);padding-top:6px;line-height:1.5;">
-                  Auto-Sync standardmäßig <b>aus</b> — erst aktivieren wenn der Plan vollständig ist.
+                  Auto-Sync standardmäßig <b>aus</b>. Plan als Text-Tabelle mit +–| Rahmen.
+               </div>
+            </div>
+            <!-- Webhook: private data channel -->
+            <div style="margin-top:10px;padding:10px 11px;background:rgba(16,185,129,.07);border:1px solid rgba(16,185,129,.22);border-radius:var(--r);">
+               <div style="font-size:11px;font-weight:700;color:var(--gi);margin-bottom:4px;">🔒 Privater Daten-Kanal · nur ML</div>
+               <div style="font-size:10px;color:var(--text3);margin-bottom:7px;">Für dich — Mitarbeiter, Schichten, Urlaubsdaten als JSON-Backup</div>
+               <div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:8px;">
+                  <input type="url" id="wh-data-url" placeholder="https://discord.com/api/webhooks/… (privater Kanal)" style="background:var(--card2);border:1px solid var(--border2);color:var(--text);padding:7px 9px;border-radius:var(--r);font-size:11px;">
+                  <button class="btn btn-sm" onclick="saveDataWH()">Speichern</button>
+               </div>
+               <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+                  <button class="btn btn-sm" style="background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.3);color:var(--gi)" onclick="pushDataToDiscord()">💾 Daten sichern</button>
+                  <button class="btn btn-sm" style="background:rgba(88,166,255,.12);border-color:rgba(88,166,255,.3);color:var(--blue)" onclick="pullDataFromDiscord()">📥 Daten laden</button>
+               </div>
+               <div id="sync-st" style="font-size:11px;color:var(--text2);min-height:14px;line-height:1.6;"></div>
+            </div>
+            <!-- Archive -->
+            <div style="margin-top:11px;">
+               <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:7px;display:flex;align-items:center;gap:8px;">
+                  📁 Archiv — gepostete Wochen
+                  <button class="btn btn-sm" onclick="refreshArchive()" style="font-size:10px;padding:2px 7px;margin-left:auto">↻</button>
+               </div>
+               <div id="archive-list" style="max-height:160px;overflow-y:auto;"></div>
+               <div class="past-warn" id="past-warn">
+                  ⚠ Diese Woche wurde bereits in Discord archiviert. Änderungen werden die archivierten Nachrichten <b>überschreiben</b>. Verwende "Neu posten" um eine frische Kopie zu erstellen.
                </div>
             </div>
             <div class="dtip">
                <h3>📌 Kanal #<span id="d-fil-ch">XXXX</span>-dienstplan</h3>
                <ol>
+                  <li>Jede KW bekommt eigene Nachrichten — alte KWs bleiben erhalten</li>
+                  <li>🔒 Gesperrte KWs werden nie überschrieben (auch nicht durch Auto-Sync)</li>
                   <li>@everyone: Lesen ✓, Schreiben ✗ &nbsp;·&nbsp; ML/SML: Schreiben ✓</li>
-                  <li>Webhook postet automatisch alle Nachrichten in Reihe</li>
                </ol>
             </div>
          </div>
@@ -357,6 +385,56 @@
                <button class="btn btn-sm" onclick="genWA()" style="margin-left:auto">↻ Neu</button>
             </div>
             <div class="wa-tip"><span style="color:#25d366;font-weight:600">Tipp:</span> Mitarbeiter mit gespeicherter Nummer erscheinen als <code style="font-size:11px;background:rgba(37,211,102,.12);padding:1px 4px;border-radius:3px;">@Vorname</code> — nach dem Einfügen in WhatsApp antippen zum Markieren. Nummern unter ⚙ Mitarbeiter → ✏ eintragen.</div>
+         </div>
+      </div>
+      <!-- VACATION OVERLAY -->
+      <div class="owrap" id="vac-ov" style="display:none">
+         <div class="pbox" style="max-width:900px">
+            <div class="phdr">
+               <div class="ptitle">🏖 Urlaubsplanung <span id="vac-year" style="color:var(--accent);font-size:13px;margin-left:6px"></span></div>
+               <div style="display:flex;align-items:center;gap:8px;">
+                  <span style="font-size:11px;color:var(--text2)">Jahr:</span>
+                  <button class="btn btn-sm" onclick="changeVacYear(-1)">◀</button>
+                  <span id="vac-year-lbl" style="font-size:12px;font-weight:700;min-width:36px;text-align:center"></span>
+                  <button class="btn btn-sm" onclick="changeVacYear(1)">▶</button>
+                  <button class="mclose" onclick="closeVac()">✕</button>
+               </div>
+            </div>
+            <div style="font-size:11px;color:var(--text2);margin-bottom:8px;line-height:1.7;">
+               Klicke eine Zelle um eine KW als Urlaub zu markieren. Rot = mehrere gleichzeitig. Jeder hat <b>6 Wochen (30 Wochentage)</b> Urlaub.
+            </div>
+            <div class="vac-summary" id="vac-summary"></div>
+            <div class="vac-wrap">
+               <table class="vac" id="vac-table"></table>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px;font-size:11px;color:var(--text3);">
+               <span style="display:flex;align-items:center;gap:4px;"><span style="width:12px;height:12px;background:rgba(37,211,102,.18);border-radius:2px;display:inline-block"></span>Urlaub</span>
+               <span style="display:flex;align-items:center;gap:4px;"><span style="width:12px;height:12px;background:rgba(220,53,69,.18);border-radius:2px;display:inline-block"></span>Überschneidung</span>
+               <span style="margin-left:auto;font-size:10px;">Max. 6 Wochen / Mitarbeiter</span>
+            </div>
+         </div>
+      </div>
+      <!-- CONFLICT MODAL -->
+      <div class="mwrap" id="conflict-modal" style="display:none">
+         <div class="conflict-box">
+            <div class="conflict-title"><span style="color:var(--go)">⚠</span>Konflikt gefunden</div>
+            <div style="font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.6;" id="conflict-desc">Lokale Daten und Discord-Daten stimmen nicht überein.</div>
+            <div class="conflict-row">
+               <div class="conflict-side" id="cf-local">
+                  <div class="conflict-side-lbl" id="cf-local-lbl">Lokal</div>
+                  <div class="conflict-detail" id="cf-local-detail">–</div>
+               </div>
+               <div class="conflict-side" id="cf-discord">
+                  <div class="conflict-side-lbl" id="cf-discord-lbl">Discord</div>
+                  <div class="conflict-detail" id="cf-discord-detail">–</div>
+               </div>
+            </div>
+            <div class="mbtns">
+               <button class="btn btn-sm" id="cf-use-local" onclick="resolveConflict('local')">Lokal behalten</button>
+               <button class="btn btn-sm" id="cf-merge" onclick="resolveConflict('merge')" style="background:rgba(88,166,255,.12);border-color:rgba(88,166,255,.3);color:var(--blue)">Zusammenführen</button>
+               <button class="btn btn-y btn-sm" id="cf-use-discord" onclick="resolveConflict('discord')">Discord übernehmen</button>
+            </div>
+            <div style="margin-top:8px;font-size:10px;color:var(--text3);line-height:1.5;" id="cf-merge-hint"></div>
          </div>
       </div>
       <script src="app.js"></script>
