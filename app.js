@@ -173,102 +173,21 @@ function shiftTimeClass(start, end){
 
 // ── RENDER ───────────────────────────────
 function render(){
-  const{monday,bundesland,employees,shifts}=state;
-  const today=fmtDate(new Date());
-  const hols=getAllHols(monday,bundesland);
-  const end=addDays(monday,5);
-  document.getElementById('kw-lbl').textContent=`KW ${getKW(monday)}`;
-  const sm=monday.getMonth()===end.getMonth();
-  document.getElementById('dr-lbl').textContent=sm?`${monday.getDate()}. – ${end.getDate()}. ${MONTHS[monday.getMonth()]} ${monday.getFullYear()}`:`${monday.getDate()}. ${MONTHS[monday.getMonth()]} – ${end.getDate()}. ${MONTHS[end.getMonth()]} ${monday.getFullYear()}`;
-  let hc=0;for(let i=0;i<6;i++)if(hols[fmtDate(addDays(monday,i))])hc++;
-  document.getElementById('hc-lbl').textContent=hc?`🎉 ${hc} Feiertag${hc>1?'e':''}`:'';;
-
-  const home=employees.filter(e=>!e.isGuest);
-  const guests=employees.filter(e=>e.isGuest);
-  const hasG=guests.length>0;
-
-  // HEAD
-  let th=`<tr><th class="day-th day-col"><div class="day-cell"><div style="font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px">Tag</div></div></th>`;
-  home.forEach(e=>{const sollLbl=e.weeklyTarget?`<div style="font-size:9px;color:var(--text3);margin-top:2px">Soll: ${String(e.weeklyTarget).replace('.',',')} Std/Wo</div>`:'' ;th+=`<th class="emp-th"><div class="emp-hdr"><div class="emp-name" style="color:${COL[e.col]||'var(--text)'}">${esc(e.name)}</div><div class="emp-role">${esc(e.role)}</div><div class="emp-badges"><span class="badge ${TYPE_B[e.type]||'badge-gfb'}">${TYPE_L[e.type]||e.type}</span></div>${sollLbl}</div></th>`;});
-  if(hasG){th+=`<th class="div-col"></th>`;guests.forEach(e=>{const u=e.guestUntil?new Date(e.guestUntil):null;th+=`<th class="emp-th"><div class="emp-hdr"><div class="emp-name" style="color:var(--gi)">${esc(e.name)}</div><div class="emp-role">${esc(e.role)}</div><div style="font-size:9px;color:var(--gi);margin-top:2px;font-weight:700">← aus ${esc(e.guestFrom||'?')}</div>${u?`<div style="font-size:9px;color:var(--text3)">bis ${u.getDate()}.${u.getMonth()+1}.</div>`:''}</div></th>`;});}
-  th+='</tr>';
-  document.getElementById('t-head').innerHTML=th;
-
-  // BODY
-  let body='';
-  for(let i=0;i<6;i++){
-    const day=addDays(monday,i);const ds=fmtDate(day);
-    const isTod=ds===today,ft=hols[ds];
-    let rc='';if(isTod)rc+=' is-today';if(ft)rc+=' is-hol';
-    const dl=DAYS[day.getDay()];
-    const dt=dayTotalH(ds);
-    body+=`<tr class="${rc}"><td class="day-col"><div class="day-cell"><div class="day-name">${dl}</div><div class="day-date">${day.getDate()}.${day.getMonth()+1}.</div>${ft?`<div class="ft-tag">🎉 ${esc(ft)}</div>`:''}${isTod&&!ft?'<div style="font-size:9px;color:var(--blue);margin-top:2px;font-weight:700">● HEUTE</div>':''}${dt>0?`<div style="font-size:9px;color:var(--text2);margin-top:3px;font-family:'JetBrains Mono',ui-monospace,monospace;">∑ ${fmtH(dt)}</div>`:''}</div></td>`;
-    home.forEach(e=>{
-      const sh=(shifts[ds]||{})[e.id];
-      const isGo=sh&&sh.type==='work'&&sh.goFil;
-      let cc='sc';
-      if(isGo)cc+=' go-c';
-      else if(sh&&sh.type==='bs')cc+=' bs-c';
-      else if(!sh||sh.type==='free')cc+=' frei-c';
-      // time highlight applied to text, not background
-      body+=`<td><div class="${cc}" onclick="cellClick(event,'${ds}','${e.id}','${dl} ${day.getDate()}.${day.getMonth()+1}.','${esc(e.name)}')" title="Klicken zum Bearbeiten"><button class="copy-btn" onclick="event.stopPropagation();copyCell('${ds}','${e.id}')" title="Schicht kopieren">⎘</button>`;
-      if(ft&&!sh){body+=`<div class="hol-ov">FEIERTAG</div><div class="se">+</div>`;}
-      else if(!sh||sh.type==='free'){
-        body+=`<div class="frei-line"><svg><line x1="0" y1="0" x2="100%" y2="100%" stroke="var(--text3)" stroke-width="1.5" opacity="0.25"/></svg></div><div class="se">+</div>`;
-      }
-      else if(sh.type==='sick'){body+=`<div style="color:var(--red);font-size:12px;font-weight:700;margin-top:5px">🤒 Krank</div>${sh.note?`<div class="sn">${esc(sh.note)}</div>`:''}`;}
-      else if(sh.type==='vacation'){
-        body+=`<div style="color:var(--blue);font-size:12px;font-weight:700;margin-top:5px">🏖 Urlaub</div>`;
-        if(sh.note)body+=`<div class="sn">${esc(sh.note)}</div>`;
-      }
-      else if(sh.type==='bs'){body+=`<div style="color:var(--blue);font-size:12px;font-weight:700;margin-top:5px">🏫 BS</div><div style="font-size:10px;color:var(--text3);margin-top:2px">nicht gewertet</div>${sh.note?`<div class="sn">${esc(sh.note)}</div>`:''}`;}
-      else if(sh.type==='absent'){body+=`<div style="color:var(--text2);font-size:11px;margin-top:5px">◌ Abwesend</div>`;}
-      else if(isGo){body+=`<div class="go-b">→ ${esc(sh.goFil)}</div>`;if(sh.goTimes==='yes'){const h=calcH(sh.start,sh.end,sh.pause);body+=`<div style="font-size:11px;font-family:'JetBrains Mono',ui-monospace,monospace;color:var(--text2)">${sh.start}–${sh.end}</div>`;if(h>0)body+=`<div style="font-size:10px;color:var(--go)">${fmtH(h)}</div>`;}if(sh.note)body+=`<div class="sn">${esc(sh.note)}</div>`;}
-      else{const h=calcH(sh.start,sh.end,sh.pause);const tc=shiftTimeClass(sh.start,sh.end);const tcCls=tc?{"sh-early":'sh-early-txt',"sh-late":'sh-late-txt',"sh-mixed":'sh-mixed-txt'}[tc]||'':'';body+=`<div class="st${tcCls?' '+tcCls:''}">` +`${sh.start}<br><span style="color:var(--text3)">–</span>${sh.end}</div>`;if(h>0)body+=`<div class="sh">${fmtH(h)}</div>`;if(sh.pause>0)body+=`<div class="sp">P: ${sh.pause} Min.</div>`;if(sh.note)body+=`<div class="sn">${esc(sh.note)}</div>`;}
-      body+=`</div></td>`;
-    });
-    if(hasG){body+=`<td class="div-col"></td>`;guests.forEach(e=>{const sh=(shifts[ds]||{})[e.id];let cc='sc';if(sh&&sh.type==='work')cc+=' gi-c';else if(!sh||sh.type==='free')cc+=' frei-c';body+=`<td><div class="${cc}" onclick="openShift('${ds}','${e.id}','${dl} ${day.getDate()}.${day.getMonth()+1}.','${esc(e.name)} ← ${esc(e.guestFrom||'')}')">`;if(!sh||sh.type==='free'){body+=`<div class="frei-line"><svg><line x1="0" y1="0" x2="100%" y2="100%" stroke="var(--text3)" stroke-width="1.5" opacity="0.2"/></svg></div><div class="se">+</div>`;}else if(sh.type==='work'){const h=calcH(sh.start,sh.end,sh.pause);body+=`<div class="gi-b">← ${esc(e.guestFrom||'?')}</div><div class="st" style="font-size:12px">${sh.start}–${sh.end}</div>`;if(h>0)body+=`<div style="font-size:10px;color:var(--gi)">${fmtH(h)}</div>`;if(sh.note)body+=`<div class="sn">${esc(sh.note)}</div>`;}else{body+=`<div style="font-size:11px;color:var(--text2);margin-top:5px">${sh.type==='sick'?'🤒 Krank':sh.type==='vacation'?'🏖 Urlaub':sh.type==='bs'?'🏫 BS':'◌'}</div>`;}body+=`</div></td>`;});}body+='</tr>';
+  // draw canvas
+  const canvas=document.getElementById('sched-canvas');
+  if(canvas) drawPlanToCanvas(canvas);
+  // attach click handler (replace each time to stay current)
+  if(canvas){
+    canvas.onclick=null;
+    canvas.onclick=function(e){handleCanvasClick(e,canvas);};
   }
-  document.getElementById('t-body').innerHTML=body;
-
-  // FOOT
-  const teamH=teamTotalH();
-  const teamHFmt=fmtH(teamH);
-  let foot=`<tr><td class="day-col"><div style="padding:5px 8px">
-    <div class="tot-lbl">Wochenstunden</div>
-    ${teamH>0?`<div style="margin-top:4px;padding:4px 6px;background:var(--accent-glow);border:1px solid var(--accent-dim);border-radius:4px;display:inline-block">
-      <div style="font-size:8px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.4px">Team gesamt</div>
-      <div style="font-size:12px;font-weight:700;color:var(--accent);font-family:'JetBrains Mono',ui-monospace,monospace;margin-top:1px">${teamHFmt}</div>
-    </div>`:''}
-  </div></td>`;
-  home.forEach(e=>{
-    const h=wkH(e.id),d=wkD(e.id);
-    const isRK=e.type==='rk';
-    const tgt=e.weeklyTarget?parseFloat(e.weeklyTarget):null;
-    if(isRK){
-      const over=h>RK_CAP;
-      const rkColor=over?'var(--red)':h>0?'var(--text2)':'var(--text3)';
-      const rkSuffix=h>0?` <span style="font-size:10px;color:var(--text3)">/ ${RK_CAP} Std${over?' ⚠':''}</span>`:'';
-      foot+=`<td><div style="padding:5px 8px"><div class="tot-h" style="color:${rkColor}">${h>0?fmtH(h):'—'}${rkSuffix}</div><div style="font-size:8px;color:var(--text3);margin-top:1px">exkl.</div>${d>0?`<div style="font-size:9px;color:var(--text2);margin-top:1px">${d}T</div>`:''}</div></td>`;
-    } else {
-      let dispH='—';let dispCls='var(--text3)';
-      if(h>0){
-        if(tgt){
-          const dv=Math.round((h-tgt)*100)/100;
-          const sign=dv>0?'+':'';
-          const dcls=dv>0.05?'var(--red)':dv<-0.5?'var(--green)':'var(--accent)';
-          const dvStr=dv!==0?` <span style="font-size:11px;color:${dcls}">(${sign}${String(dv).replace('.',',')})</span>`:'';
-          dispH=`${fmtH(h)}${dvStr}`;dispCls='var(--accent)';
-        }
-        else{dispH=fmtH(h);dispCls='var(--accent)';}
-      }
-      foot+=`<td><div style="padding:5px 8px"><div class="tot-h" style="color:${dispCls}">${dispH}</div>${d>0?`<div style="font-size:9px;color:var(--text2);margin-top:1px">${d}T</div>`:''}</div></td>`;
-    }
-  });
-  if(hasG){foot+=`<td class="div-col"></td>`;guests.forEach(e=>{const h=wkH(e.id);foot+=`<td><div style="padding:5px 8px"><div class="tot-h" style="color:${h>0?'var(--gi)':'var(--text3)'}">${h>0?fmtH(h):'—'}</div></div></td>`;});}
-  foot+='</tr>';
-  document.getElementById('t-foot').innerHTML=foot;
+  updateDayTotals();
 }
+
+function updateDayTotals(){
+  // (footer badge kept in footer bar)
+}
+
 
 // ── SHIFT ────────────────────────────────
 function openShift(ds,empId,dayLabel,empName){
@@ -683,12 +602,25 @@ function drawPlanToCanvas(canvas){
   const end=addDays(monday,5);
   const today=fmtDate(new Date());
 
-  // ── A4 LANDSCAPE 150 DPI ──────────────────
+  // ── DIMENSIONS ───────────────────────────
   const SCALE=2;
-  const W=1754, H=1240;
+  const MIN_COL=110; // minimum column width before horizontal scroll kicks in
+  const PAD=14, DAYW=88;
+  const empCount=home.length||1;
+  const wrap=canvas.parentElement;
+  const wrapW=(wrap?wrap.clientWidth:window.innerWidth)||1000;
+  const wrapH=(wrap?wrap.clientHeight:window.innerHeight)||700;
+  // Height: always fill the container exactly
+  const H=Math.max(wrapH,320);
+  // Width: fill container, or expand + scroll if min column width hit
+  const naturalColW=Math.floor((wrapW-PAD*2-DAYW)/empCount);
+  const COL_TOTAL=Math.max(naturalColW,MIN_COL);
+  const W=PAD*2+DAYW+COL_TOTAL*empCount;
+  // CSS dimensions
+  canvas.style.width=W<=wrapW?'100%':W+'px';
+  canvas.style.height='100%';
 
   canvas.width=W*SCALE; canvas.height=H*SCALE;
-  canvas.style.width='100%'; canvas.style.height='auto';
   const ctx=canvas.getContext('2d');
   ctx.scale(SCALE,SCALE);
 
@@ -712,9 +644,7 @@ function drawPlanToCanvas(canvas){
   };
 
   // ── LAYOUT CONSTANTS ─────────────────────
-  const PAD=14;
-  const DAYW=88;         // day label column width
-  const SUBT=8;          // text safe zone inside cell
+  const SUBT=8;
 
   // Header row heights
   const H_TITLE=34;
@@ -724,19 +654,16 @@ function drawPlanToCanvas(canvas){
   const H_SUBHDR=20;
   const HDR_H=H_TITLE+H_NAME+H_ROLE+H_WSOLL+H_SUBHDR;
 
-  // Day group heights (3 sub-rows)
+  // Day group with 4 equal sub-rows
   const FOOT_H=38;
   const DAY_AVAIL=H-HDR_H-FOOT_H;
-  const DG=Math.floor(DAY_AVAIL/6);   // total per day group
-  const R_MAIN=Math.round(DG*0.56);   // main shift row
-  const R_P1=Math.round(DG*0.22);     // Pause 1
-  const R_P2=DG-R_MAIN-R_P1;         // Pause 2
+  const DG=Math.floor(DAY_AVAIL/6);
+  const SR=Math.floor(DG/4);  // sub-row height (all equal)
+  // legacy aliases for backward compat
+  const R_MAIN=SR, R_P1=SR, R_P2=SR, R_P3=DG-SR*3;
 
-  // Column widths — split each employee into Zeit + Std
-  const empCount=home.length||1;
-  const COL_TOTAL=Math.floor((W-PAD*2-DAYW)/empCount);
-  const COL_Z=Math.round(COL_TOTAL*0.62);  // Zeit sub-col
-  const COL_S=COL_TOTAL-COL_Z;             // Std sub-col
+  const COL_Z=Math.round(COL_TOTAL*0.62);
+  const COL_S=COL_TOTAL-COL_Z;
 
   // ── HELPERS ──────────────────────────────
   function fx(ci){return PAD+DAYW+ci*COL_TOTAL;}  // x start of employee ci
@@ -781,8 +708,13 @@ function drawPlanToCanvas(canvas){
     const empColor=COL[e.col]||C.text;
     const x=fz(ci);
     rect(x,hy,COL_TOTAL,H_NAME,C.card);
-    const fn='bold 11px system-ui';
-    txt(clip(e.name,COL_TOTAL-8,fn),x+SUBT,hy+H_NAME-7,fn,empColor);
+    const fn='bold 10px system-ui';
+    // Split name: last word = Nachname (top), rest = Vorname (bottom)
+    const parts=e.name.trim().split(/\s+/);
+    const lastName=parts.length>1?parts[parts.length-1]:parts[0];
+    const firstName=parts.length>1?parts.slice(0,-1).join(' '):'';
+    txt(clip(lastName,COL_TOTAL-8,fn),x+SUBT,hy+H_NAME*0.48,fn,empColor);
+    if(firstName)txt(clip(firstName,COL_TOTAL-8,fn),x+SUBT,hy+H_NAME*0.92,fn,empColor);
     vline(x,hy,hy+H_NAME,C.border2);
   });
   hy+=H_NAME; hline(hy,C.border);
@@ -823,42 +755,57 @@ function drawPlanToCanvas(canvas){
   const BODY_Y=hy;
 
   // ── DAY GROUPS ───────────────────────────
+  // Day column width + split point — define once (reused in footer)
+  const DCOL_W=DAYW+PAD;
+  const DATE_W=Math.round(DCOL_W*0.58);
   for(let i=0;i<6;i++){
     const day=addDays(monday,i); const ds=fmtDate(day);
     const ft=hols[ds]; const isTod=ds===today;
     const gy=BODY_Y+i*DG; // group top y
 
-    // Row y positions
-    const yMain=gy;
-    const yP1=gy+R_MAIN;
-    const yP2=gy+R_MAIN+R_P1;
+    // 4 equal sub-row y positions
+    const y1=gy, y2=gy+SR, y3=gy+2*SR, y4=gy+3*SR;
 
     // Day group background
     const dayBg=ft?C.holBg:isTod?C.todayBg:C.bg;
     rect(0,gy,W,DG,dayBg);
 
     // Day label column background
-    rect(0,gy,DAYW+PAD,R_MAIN,C.surface);
-    rect(0,yP1,DAYW+PAD,R_P1,'rgba(19,19,24,0.6)');
-    rect(0,yP2,DAYW+PAD,R_P2,'rgba(19,19,24,0.6)');
+    rect(0,gy,DCOL_W,DG,C.surface);
+    // Slightly dimmer bg for rows 2–4 of day col (visual break after the date row)
+    rect(0,y2,DCOL_W,DG-SR,'rgba(13,13,18,0.5)');
 
     // Today/holiday accent bar
     if(isTod){rect(0,gy,3,DG,C.blue);}
     else if(ft){rect(0,gy,3,DG,C.accent);}
 
-    // Date and day name
+    // Sub-row 1: left = date, right = day total hours (split with vertical line)
+    vline(DATE_W,y1,y2,C.border,0.4);
+
     const dlName=DAYS[day.getDay()];
-    txt(`${day.getDate()}.${day.getMonth()+1}`,PAD+4,yMain+Math.round(R_MAIN*0.42),'bold 18px system-ui',isTod?C.blue:ft?C.accent:C.text);
-    txt(dlName,PAD+4,yMain+Math.round(R_MAIN*0.78),'12px system-ui',isTod?C.blue:C.text2);
-    if(ft){txt(ft.length>11?ft.slice(0,10)+'…':ft,PAD+2,yMain+R_MAIN-5,'bold 7px system-ui',C.accent);}
+    const dateStr=`${day.getDate()}.${day.getMonth()+1}`;
+    // Consistent font size for the whole day column
+    const dayFS=Math.max(10,Math.min(13,Math.floor(SR*0.52)));
 
-    // Pause labels
-    txt('Pause',PAD+4,yP1+Math.round(R_P1*0.7),'9px system-ui',C.text3);
-    txt('Pause',PAD+4,yP2+Math.round(R_P2*0.7),'9px system-ui',C.text3);
+    txt(dateStr,PAD+4,y1+Math.round(SR*0.62),`bold ${dayFS}px system-ui`,isTod?C.blue:ft?C.accent:C.text);
 
-    // Sub-row dividers in day label col
-    hline(yP1,C.border,0.4);
-    hline(yP2,C.border,0.4);
+    // Day total hours (right of split)
+    const dtH=dayTotalH(ds);
+    if(dtH>0){
+      const dtStr=String(Math.round(dtH*100)/100).replace('.',',');
+      txt(dtStr,DATE_W+4,y1+Math.round(SR*0.62),`bold ${dayFS}px 'JetBrains Mono',monospace`,C.accent);
+    }
+
+    // Sub-row 2: day name, full width
+    txt(dlName,PAD+4,y2+Math.round(SR*0.62),`bold ${dayFS}px system-ui`,isTod?C.blue:C.text2);
+    if(ft){txt(ft.length>12?ft.slice(0,11)+'…':ft,PAD+4,y2+Math.round(SR*0.62)+dayFS+2,`bold ${dayFS-2}px system-ui`,C.accent);}
+
+    // Sub-rows 3 & 4: empty in day column
+
+    // Sub-row dividers
+    hline(y2,C.border,0.4);
+    hline(y3,C.border,0.4);
+    hline(y4,C.border,0.4);
 
     // Employee cells
     home.forEach((e,ci)=>{
@@ -870,14 +817,12 @@ function drawPlanToCanvas(canvas){
       vline(sx,gy,gy+DG,C.border,0.4);
 
       // Sub-row dividers in cell
-      hline(yP1,C.border,0.3); // redrawn per cell area for clarity
+      // (sub-row dividers already drawn for the whole row in day group)
 
       if(!sh||sh.type==='free'){
-        // Diagonal strikethrough
         ctx.strokeStyle=C.freiDiag; ctx.lineWidth=1.2; ctx.globalAlpha=0.5;
-        ctx.beginPath(); ctx.moveTo(zx+2,yMain+2); ctx.lineTo(zx+COL_TOTAL-2,yMain+R_MAIN-2); ctx.stroke();
-        ctx.globalAlpha=1;
-        return;
+        ctx.beginPath(); ctx.moveTo(zx+2,gy+2); ctx.lineTo(zx+COL_TOTAL-2,gy+DG-2); ctx.stroke();
+        ctx.globalAlpha=1; return;
       }
 
       if(sh.type==='work'&&!sh.goFil){
@@ -887,46 +832,52 @@ function drawPlanToCanvas(canvas){
         const fill=tc?fills[tc]:null;
         const tColor=tc?txts[tc]:C.text;
 
-        // Highlight rect (like marker) on Zeit cell
-        if(fill){rect(zx+1,yMain+2,COL_Z-2,R_MAIN-4,fill);}
+        // Highlight fill spans sub-rows 2 and 3 (start + end times)
+        if(fill){rect(zx+1,y2+1,COL_Z-2,SR*2-2,fill);}
 
-        // Time text — split start / end on two lines
-        const FS=Math.max(9,Math.min(13,Math.floor(R_MAIN*0.32)));
-        txt(sh.start,zx+SUBT,yMain+Math.round(R_MAIN*0.42),`bold ${FS}px 'JetBrains Mono',monospace`,tColor);
-        txt(sh.end,  zx+SUBT,yMain+Math.round(R_MAIN*0.76),`bold ${FS}px 'JetBrains Mono',monospace`,tColor);
-
-        // Hours in Std col
+        const FS=Math.max(9,Math.min(14,Math.floor(SR*0.6)));
+        // Start time in sub-row 2, hours next to it in Std col
+        txt(sh.start,zx+SUBT,y2+Math.round(SR*0.62),`bold ${FS}px 'JetBrains Mono',monospace`,tColor);
         const h=calcH(sh.start,sh.end,sh.pause);
         if(h>0){
           const hs=String(Math.round(h*100)/100).replace('.',',');
-          txt(hs,sx+COL_S/2,yMain+Math.round(R_MAIN*0.58),`bold 11px system-ui`,C.accent,'center');
+          txt(hs,sx+COL_S/2,y2+Math.round(SR*0.62),`bold 11px system-ui`,C.accent,'center');
         }
-
-        // Pause duration in P1 row
-        if(sh.pause>0){
-          txt(`${sh.pause} Min.`,zx+SUBT,yP1+Math.round(R_P1*0.72),`9px system-ui`,C.text3);
-        }
-        // Note in P2 row
+        // End time in sub-row 3
+        txt(sh.end,zx+SUBT,y3+Math.round(SR*0.62),`bold ${FS}px 'JetBrains Mono',monospace`,tColor);
+        // Notiz in sub-row 4 (its own dedicated row)
         if(sh.note){
-          txt(clip(sh.note,COL_TOTAL-10,'8px system-ui'),zx+SUBT,yP2+Math.round(R_P2*0.72),'italic 8px system-ui',C.accent);
+          txt(clip(sh.note,COL_TOTAL-10,'9px system-ui'),zx+SUBT,y4+Math.round(SR*0.62),'italic 9px system-ui',C.accent);
         }
       } else if(sh.type==='work'&&sh.goFil){
-        rect(zx+1,yMain+2,COL_Z-2,R_MAIN-4,'rgba(16,185,129,0.15)');
-        txt(`→ ${sh.goFil}`,zx+SUBT,yMain+Math.round(R_MAIN*0.5),'bold 10px system-ui',C.gi);
-        if(sh.goTimes==='yes'){txt(`${sh.start}–${sh.end}`,zx+SUBT,yMain+Math.round(R_MAIN*0.78),'9px system-ui',C.text2);}
+        rect(zx+1,y2+1,COL_Z-2,SR*2-2,'rgba(16,185,129,0.15)');
+        txt(`→ ${sh.goFil}`,zx+SUBT,y2+Math.round(SR*0.62),'bold 10px system-ui',C.gi);
+        if(sh.goTimes==='yes'){
+          txt(sh.start,zx+SUBT,y3+Math.round(SR*0.62),'9px system-ui',C.text2);
+          txt(sh.end,zx+SUBT+Math.round(COL_Z*0.45),y3+Math.round(SR*0.62),'9px system-ui',C.text2);
+        }
       } else {
-        // Krank / Urlaub / BS / Abwesend
         const icons={vacation:'🏖',sick:'🤒',bs:'🏫',absent:'◌'};
         const txtsMap={vacation:'Urlaub',sick:'Krank',bs:'BS',absent:'Abw.'};
         const cols={vacation:C.blue,sick:C.red,bs:C.blue,absent:C.text2};
         const ec=cols[sh.type]||C.text2;
-        rect(zx+1,yMain+2,COL_Z-2,R_MAIN-4,ec+'18');
-        ctx.font=`${Math.round(R_MAIN*0.32)}px system-ui`;
-        ctx.fillText(icons[sh.type]||'',zx+SUBT,yMain+Math.round(R_MAIN*0.55));
-        txt(txtsMap[sh.type]||sh.type,zx+SUBT+Math.round(R_MAIN*0.36)+2,yMain+Math.round(R_MAIN*0.55),'10px system-ui',ec);
+        rect(zx+1,y2+1,COL_Z-2,SR*2-2,ec+'18');
+        const iconY=y2+SR+Math.round(SR*0.1);
+        ctx.font=`${Math.round(SR*0.45)}px system-ui`;
+        ctx.fillText(icons[sh.type]||'',zx+SUBT,iconY);
+        txt(txtsMap[sh.type]||sh.type,zx+SUBT+Math.round(SR*0.5)+2,iconY,'10px system-ui',ec);
       }
     });
 
+    // Copy-source highlight
+    if(_copyBuf&&_copyBuf.ds===ds){
+      const srcIdx=home.findIndex(e=>e.id===_copyBuf.empId);
+      if(srcIdx>=0){
+        const sx2=fz(srcIdx);
+        ctx.strokeStyle=C.accent; ctx.lineWidth=2.5;
+        ctx.strokeRect(sx2+1,gy+1,COL_TOTAL-2,DG-2);
+      }
+    }
     // Full-width group bottom border
     hline(gy+DG,C.border2,0.8);
   }
@@ -935,7 +886,16 @@ function drawPlanToCanvas(canvas){
   const fy=BODY_Y+6*DG;
   rect(0,fy,W,FOOT_H,C.card);
   hline(fy,C.border2,1);
-  txt('Gesamtstunden:',PAD+4,fy+FOOT_H-10,'bold 10px system-ui',C.text2);
+  // Show team total in day label col (no Gesamtstunden text)
+  {
+    const tt=teamTotalH();
+    vline(DATE_W,fy,fy+FOOT_H,C.border,0.4);
+    txt('Gesamt',PAD+4,fy+FOOT_H*0.6,'bold 9px system-ui',C.text3);
+    if(tt>0){
+      const ts=String(Math.round(tt*10)/10).replace('.',',');
+      txt(ts,DATE_W+4,fy+FOOT_H*0.6,"bold 11px 'JetBrains Mono',monospace",C.accent);
+    }
+  }
 
   home.forEach((e,ci)=>{
     const zx=fz(ci); const sx=fs(ci);
@@ -963,10 +923,32 @@ function drawPlanToCanvas(canvas){
 }
 function getPlanPNGBlob(){
   return new Promise(resolve=>{
-    const canvas=document.createElement('canvas');
-    drawPlanToCanvas(canvas);
-    canvas.toBlob(resolve,'image/png');
+    // Export always at A4 landscape regardless of screen size
+    const offscreen=document.createElement('canvas');
+    // Temporarily override clientHeight/Width by drawing to a fixed-size canvas
+    const orig=HTMLCanvasElement.prototype.getContext;
+    // Just draw to a dedicated offscreen canvas at A4 size
+    const a4w=1754,a4h=1240,sc=2;
+    offscreen.width=a4w*sc; offscreen.height=a4h*sc;
+    const ctx=offscreen.getContext('2d');
+    ctx.scale(sc,sc);
+    // Re-draw with fixed A4 dimensions by temporarily patching parentElement
+    const fakeParent={clientWidth:a4w,clientHeight:a4h};
+    const realParent=Object.getOwnPropertyDescriptor(HTMLElement.prototype,'parentElement');
+    // Simpler: just call drawPlanToCanvas with A4 canvas
+    drawPlanToCanvasFixed(offscreen,a4w,a4h);
+    offscreen.toBlob(resolve,'image/png');
   });
+}
+
+// Draw at an explicit W×H (used for A4 PNG export)
+function drawPlanToCanvasFixed(canvas,forcedW,forcedH){
+  // Temporarily spoof parentElement clientWidth/Height
+  const _orig=canvas.__proto__;
+  const saved=canvas.parentElement;
+  Object.defineProperty(canvas,'parentElement',{get:()=>({clientWidth:forcedW,clientHeight:forcedH}),configurable:true});
+  drawPlanToCanvas(canvas);
+  Object.defineProperty(canvas,'parentElement',{get:()=>saved,configurable:true});
 }
 
 function downloadPlanPNG(){
@@ -1503,14 +1485,8 @@ let _copyBuf=null; // {ds, empId, shift}
 function copyCell(ds,empId){
   const sh=(state.shifts[ds]||{})[empId];
   _copyBuf={ds,empId,shift:sh?JSON.parse(JSON.stringify(sh)):null};
-  // highlight source
-  document.querySelectorAll('.sc.copy-source').forEach(el=>el.classList.remove('copy-source'));
-  // find the cell — cells have onclick with ds and empId
-  document.querySelectorAll('.sc').forEach(el=>{
-    const oc=el.getAttribute('onclick')||'';
-    if(oc.includes(`'${ds}'`)&&oc.includes(`'${empId}'`))el.classList.add('copy-source');
-  });
-  showSave('Schicht kopiert — Ziel-Zelle klicken zum Einfügen');
+  render(); // re-draw canvas with copy indicator
+  showSave('Schicht kopiert — Zelle klicken zum Einfügen · Esc = Abbrechen');
 }
 
 function cellClick(event,ds,empId,dayLabel,empName){
@@ -1541,15 +1517,69 @@ function pasteCell(ds,empId){
 
 function cancelCopy(){
   _copyBuf=null;
-  document.querySelectorAll('.sc.copy-source').forEach(el=>el.classList.remove('copy-source'));
+  render(); // remove copy highlight
 }
 
 // Cancel copy on Escape key
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&_copyBuf)cancelCopy();});
+
+// ── CANVAS CLICK HANDLER ────────────────
+function handleCanvasClick(e,canvas){
+  const {monday,employees,shifts,bundesland}=state;
+  const home=employees.filter(emp=>!emp.isGuest);
+  if(!home.length) return;
+
+  const rect=canvas.getBoundingClientRect();
+  // Account for CSS scaling (canvas CSS width may differ from logical W)
+  const scaleX=canvas.width/(canvas.getBoundingClientRect().width*2); // ×2 for SCALE
+  const scaleY=canvas.height/(canvas.getBoundingClientRect().height*2);
+  const mx=(e.clientX-rect.left)*(canvas.width/rect.width)/2; // logical px
+  const my=(e.clientY-rect.top)*(canvas.height/rect.height)/2;
+
+  // Reconstruct layout constants (must match drawPlanToCanvas)
+  const PAD=14,DAYW=88;
+  const empCount=home.length;
+  const wrapW=canvas.parentElement?canvas.parentElement.clientWidth:window.innerWidth;
+  const wrapH=canvas.parentElement?canvas.parentElement.clientHeight:window.innerHeight;
+  const H=Math.max(wrapH||700,320);
+  const naturalColW=Math.floor((wrapW-PAD*2-DAYW)/empCount);
+  const COL_TOTAL=Math.max(naturalColW,110);
+  const H_TITLE=34,H_NAME=30,H_ROLE=24,H_WSOLL=22,H_SUBHDR=20;
+  const HDR_H=H_TITLE+H_NAME+H_ROLE+H_WSOLL+H_SUBHDR;
+  const FOOT_H=38;
+  const DAY_AVAIL=H-HDR_H-FOOT_H;
+  const DG=Math.floor(DAY_AVAIL/6);
+
+  // Click in header or footer → ignore
+  if(my<HDR_H||my>HDR_H+6*DG) return;
+
+  // Which day row?
+  const dayIdx=Math.floor((my-HDR_H)/DG);
+  if(dayIdx<0||dayIdx>5) return;
+  const day=addDays(monday,dayIdx);
+  const ds=fmtDate(day);
+  const dl=DAYS[day.getDay()];
+  const dayLabel=`${dl} ${day.getDate()}.${day.getMonth()+1}.`;
+
+  // Which employee column?
+  const cx=mx-PAD-DAYW;
+  if(cx<0) return; // clicked day label column
+  const ci=Math.floor(cx/COL_TOTAL);
+  if(ci<0||ci>=home.length) return;
+  const emp=home[ci];
+
+  // Check for copy mode first
+  if(_copyBuf){
+    pasteCell(ds,emp.id);
+  } else {
+    openShift(ds,emp.id,dayLabel,emp.name);
+  }
+}
 
 // backdrop close
 ['shift-modal','edit-emp-modal','fil-modal'].forEach(id=>document.getElementById(id).addEventListener('click',function(e){if(e.target===this)this.style.display='none';}));
 ['mgmt-ov','discord-ov','vac-ov'].forEach(id=>document.getElementById(id).addEventListener('click',function(e){if(e.target===this)this.style.display='none';}));
 document.getElementById('conflict-modal').addEventListener('click',function(e){if(e.target===this)this.style.display='none';});
 
+window.addEventListener('resize',()=>{if(document.getElementById('sched-canvas'))render();});
 init();
