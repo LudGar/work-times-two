@@ -61,6 +61,7 @@ thead th.day-th{z-index:4;}
 .badge-tz{background:rgba(40,167,69,.15);color:var(--green);}
 .badge-gfb{background:rgba(232,184,0,.1);color:var(--accent);}
 .badge-rk{background:rgba(220,53,69,.1);color:var(--red);}
+.badge-neutral{background:rgba(136,136,160,.12);color:var(--text2);}
 th.div-col,td.div-col{width:4px;min-width:4px;padding:0;background:var(--border2)!important;border:none;}
 .sc{padding:6px 8px;cursor:pointer;transition:background .1s;position:relative;overflow:hidden;}
 .sc:hover{background:var(--card2)!important;}
