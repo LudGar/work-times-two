@@ -12,8 +12,10 @@ const WH_SHIFTS_ID='dp-wh-shiftsid';
 const VAC_KEY='dp-vac';
 const DAYS=['So','Mo','Di','Mi','Do','Fr','Sa'];
 const MONTHS=['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
-const TYPE_L={vz:'Vollzeit',tz:'Teilzeit',gfb:'Geringf.',rk:'Reinigung'};
-const TYPE_B={vz:'badge-vz',tz:'badge-tz',gfb:'badge-gfb',rk:'badge-rk'};
+const TYPE_L={'':'',vz:'Endstufe',tz:'Azubi',gfb:'Geringf.',rk:'Reinigung'};
+const TYPE_B={'':'badge-neutral',vz:'badge-vz',tz:'badge-tz',gfb:'badge-gfb',rk:'badge-rk'};
+// Automatic colour assignment by type
+const TYPE_COL={'':'purple',vz:'blue',tz:'green',gfb:'yellow',rk:'red'};
 const COL={blue:'#58a6ff',green:'#2ea043',yellow:'#e8b800',red:'#dc3545',purple:'#a78bfa'};
 
 // ── STATE ────────────────────────────────
@@ -118,6 +120,13 @@ function getAllHols(mon,bl){let H={};for(let i=0;i<7;i++)Object.assign(H,getHols
 // ── CALC ─────────────────────────────────
 function calcH(s,e,p){if(!s||!e)return 0;const[sh,sm]=s.split(':').map(Number),[eh,em]=e.split(':').map(Number);let m=eh*60+em-(sh*60+sm);if(m<0)m+=1440;m-=(p||0);return Math.max(0,m/60);}
 function fmtH(h){if(!h)return'';const v=Math.round(h*100)/100;return v.toFixed(2).replace(/\.?0+$/,'').replace('.',',')+' Std';}
+// Employee day hours — Azubi (type=='tz') is capped at 5h per day regardless of shift length
+function empDayH(emp,shift){
+  if(!shift||shift.type!=='work'||shift.goFil)return 0;
+  const raw=calcH(shift.start,shift.end,shift.pause);
+  if(emp&&emp.type==='tz'&&raw>5) return 5;
+  return raw;
+}
 function vacHPD(emp){
   // vacation hours per day: explicit override → weeklyTarget/6 → 0
   if(emp&&emp.vacationHoursPerDay) return parseFloat(emp.vacationHoursPerDay);
@@ -125,11 +134,12 @@ function vacHPD(emp){
   return 0;
 }
 function wkH(id){
+  const emp=state.employees.find(x=>x.id===id);
   let t=0;
   for(let i=0;i<6;i++){
     const d=fmtDate(addDays(state.monday,i));
     const s=state.shifts[d]?.[id];
-    if(s&&s.type==='work'&&!s.goFil) t+=calcH(s.start,s.end,s.pause);
+    if(s&&s.type==='work'&&!s.goFil) t+=empDayH(emp,s);
   }
   return t;
 }
@@ -145,12 +155,12 @@ function teamTotalH(){
 }
 
 function dayTotalH(ds){
-  // sum all non-RK, non-guest work shifts for one date
+  // sum all non-RK, non-guest work shifts for one date — Azubi capped at 5h
   return state.employees
     .filter(e=>!e.isGuest&&e.type!=='rk')
     .reduce((sum,e)=>{
       const s=state.shifts[ds]?.[e.id];
-      return sum+(s&&s.type==='work'&&!s.goFil?calcH(s.start,s.end,s.pause):0);
+      return sum+empDayH(e,s);
     },0);
 }
 
@@ -255,7 +265,7 @@ function renderEmpList(){
     if(tgt){const dv=Math.round((h-tgt)*100)/100;const sign=dv>0?'+':'';const cls=dv>0.05?'over':dv<-0.5?'under':'near';tgtLine=`<div class="ei-tgt">Soll <b>${String(tgt).replace('.',',')} Std</b> · Ist <b>${fmtH(h)||'0 Std'}</b> <span class="${cls}">${sign}${String(dv).replace('.',',')} Std</span></div>`;}
     return`<div class="ei">
       <div style="width:8px;height:8px;border-radius:50%;background:${COL[e.col]||'#888'};flex-shrink:0"></div>
-      <div class="ei-info"><div class="ei-name">${esc(e.name)}</div><div class="ei-meta">${esc(e.role)} · ${TYPE_L[e.type]||e.type}${e.phone?` · 📱`:''}</div>${tgtLine}</div>
+      <div class="ei-info"><div class="ei-name">${esc(e.name)}</div><div class="ei-meta">${esc(e.role)}${TYPE_L[e.type]?' · '+TYPE_L[e.type]:''}</div>${tgtLine}</div>
       <button class="btn-ic edit" onclick="openEditEmp('${e.id}')" title="Bearbeiten">✏</button>
       <button class="btn-ic" onclick="moveEmp('${e.id}',-1)">▲</button>
       <button class="btn-ic" onclick="moveEmp('${e.id}',1)">▼</button>
@@ -270,11 +280,14 @@ function renderGuestList(){
   el.innerHTML=gs.map(e=>{const u=e.guestUntil?new Date(e.guestUntil):null;return`<div class="ei gi-item"><div style="width:8px;height:8px;border-radius:50%;background:var(--gi);flex-shrink:0"></div><div class="ei-info"><div class="ei-name" style="color:var(--gi)">${esc(e.name)}</div><div class="ei-meta">← aus Filiale ${esc(e.guestFrom||'?')} · ${esc(e.role)}${u?' · bis '+u.getDate()+'.'+(u.getMonth()+1)+'.':''}</div></div><button class="btn-ic" onclick="removeEmp('${e.id}')">✕</button></div>`;}).join('');
 }
 function addEmp(){
-  const name=document.getElementById('n-name').value.trim();
+  const v=document.getElementById('n-vorname').value.trim();
+  const n=document.getElementById('n-nachname').value.trim();
   const role=document.getElementById('n-role').value.trim();
-  if(!name)return;
-  state.employees.push({id:'e'+Date.now(),name,role:role||'Mitarbeiter/-in',type:document.getElementById('n-type').value,col:document.getElementById('n-col').value,isGuest:false});
-  document.getElementById('n-name').value='';document.getElementById('n-role').value='';
+  if(!v&&!n)return;
+  const name=[v,n].filter(Boolean).join(' ');
+  const type=document.getElementById('n-type').value;
+  state.employees.push({id:'e'+Date.now(),name,role:role||'Mitarbeiter/-in',type,col:TYPE_COL[type]||'blue',isGuest:false});
+  document.getElementById('n-vorname').value='';document.getElementById('n-nachname').value='';document.getElementById('n-role').value='';
   saveData();renderEmpList();render();
 }
 function addGuest(){
@@ -300,34 +313,37 @@ function moveEmp(id,dir){
 function openEditEmp(id){
   const e=state.employees.find(x=>x.id===id);if(!e)return;
   document.getElementById('ee-id').value=id;
-  document.getElementById('ee-name').value=e.name;
+  // Split existing name: last word = Nachname, rest = Vorname
+  const parts=(e.name||'').trim().split(/\s+/);
+  const nachname=parts.length>1?parts[parts.length-1]:parts[0]||'';
+  const vorname=parts.length>1?parts.slice(0,-1).join(' '):'';
+  document.getElementById('ee-vorname').value=vorname;
+  document.getElementById('ee-nachname').value=nachname;
   document.getElementById('ee-role').value=e.role;
   document.getElementById('ee-type').value=e.type;
-  document.getElementById('ee-col').value=e.col||'blue';
   document.getElementById('ee-target').value=e.weeklyTarget||'';
-  document.getElementById('ee-vac').value=e.vacationHoursPerDay||'';
-  document.getElementById('ee-phone').value=e.phone||'';
   document.getElementById('edit-emp-modal').style.display='flex';
 }
 function closeEditEmp(){document.getElementById('edit-emp-modal').style.display='none';}
 function saveEditEmp(){
   const id=document.getElementById('ee-id').value;
   const e=state.employees.find(x=>x.id===id);if(!e)return;
-  e.name=document.getElementById('ee-name').value.trim()||e.name;
+  const v=document.getElementById('ee-vorname').value.trim();
+  const n=document.getElementById('ee-nachname').value.trim();
+  const fullName=[v,n].filter(Boolean).join(' ');
+  if(fullName)e.name=fullName;
   e.role=document.getElementById('ee-role').value.trim()||e.role;
   e.type=document.getElementById('ee-type').value;
-  e.col=document.getElementById('ee-col').value;
+  // Colour automatically follows type
+  e.col=TYPE_COL[e.type]||'blue';
   const tv=document.getElementById('ee-target').value.trim();
   e.weeklyTarget=tv?parseFloat(tv):null;
-  const vv=document.getElementById('ee-vac').value.trim();
-  e.vacationHoursPerDay=vv?parseFloat(vv):null;
-  e.phone=document.getElementById('ee-phone').value.trim();
   closeEditEmp();saveData();renderEmpList();render();
 }
 
 // ── JSON SAVE / LOAD ─────────────────────
 function exportJSON(){
-  const data={filiale,exportedAt:new Date().toISOString(),employees:state.employees.map(e=>({name:e.name,role:e.role,type:e.type,col:e.col,weeklyTarget:e.weeklyTarget||null,vacationHoursPerDay:e.vacationHoursPerDay||null,phone:e.phone||'',isGuest:e.isGuest||false,guestFrom:e.guestFrom||'',guestUntil:e.guestUntil||''}))};
+  const data={filiale,exportedAt:new Date().toISOString(),employees:state.employees.map(e=>({name:e.name,role:e.role,type:e.type,col:e.col,weeklyTarget:e.weeklyTarget||null,isGuest:e.isGuest||false,guestFrom:e.guestFrom||'',guestUntil:e.guestUntil||''}))};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download=`mitarbeiter-${filiale}-${fmtDate(new Date())}.json`;a.click();URL.revokeObjectURL(url);
@@ -340,7 +356,7 @@ function importJSON(input){
     try{
       const data=JSON.parse(ev.target.result);
       if(!data.employees||!Array.isArray(data.employees)){showImportErr('Keine employees-Liste gefunden.');return;}
-      const imported=data.employees.map(emp=>({id:'e'+Date.now()+Math.random().toString(36).slice(2,6),name:String(emp.name||'').trim(),role:String(emp.role||'Mitarbeiter/-in').trim(),type:['vz','tz','gfb','rk'].includes(emp.type)?emp.type:'gfb',col:['blue','green','yellow','red','purple'].includes(emp.col)?emp.col:'blue',weeklyTarget:emp.weeklyTarget?parseFloat(emp.weeklyTarget):null,vacationHoursPerDay:emp.vacationHoursPerDay?parseFloat(emp.vacationHoursPerDay):null,phone:String(emp.phone||'').trim(),isGuest:!!emp.isGuest,guestFrom:String(emp.guestFrom||'').trim(),guestUntil:String(emp.guestUntil||'').trim()})).filter(e=>e.name);
+      const imported=data.employees.map(emp=>({id:'e'+Date.now()+Math.random().toString(36).slice(2,6),name:String(emp.name||'').trim(),role:String(emp.role||'Mitarbeiter/-in').trim(),type:['','vz','tz','gfb','rk'].includes(emp.type)?emp.type:'',col:['blue','green','yellow','red','purple'].includes(emp.col)?emp.col:'blue',weeklyTarget:emp.weeklyTarget?parseFloat(emp.weeklyTarget):null,isGuest:!!emp.isGuest,guestFrom:String(emp.guestFrom||'').trim(),guestUntil:String(emp.guestUntil||'').trim()})).filter(e=>e.name);
       if(!imported.length){showImportErr('Keine gültigen Mitarbeiter in der Datei.');return;}
       pendingImport=imported;
       document.getElementById('ic-msg').textContent=`${imported.length} Mitarbeiter${data.filiale?' aus Filiale '+data.filiale:''} gefunden.`;
@@ -838,7 +854,7 @@ function drawPlanToCanvas(canvas){
         const FS=Math.max(9,Math.min(14,Math.floor(SR*0.6)));
         // Start time in sub-row 2, hours next to it in Std col
         txt(sh.start,zx+SUBT,y2+Math.round(SR*0.62),`bold ${FS}px 'JetBrains Mono',monospace`,tColor);
-        const h=calcH(sh.start,sh.end,sh.pause);
+        const h=empDayH(e,sh);
         if(h>0){
           const hs=String(Math.round(h*100)/100).replace('.',',');
           txt(hs,sx+COL_S/2,y2+Math.round(SR*0.62),`bold 11px system-ui`,C.accent,'center');
